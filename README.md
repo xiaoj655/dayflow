@@ -15,32 +15,6 @@ Flutter 原生 Android 应用，手表执行任务、专注计时，手机编辑
 - Android 使用持久化计时状态和系统精确闹钟，独立于 Flutter 页面；支持熄屏、后台及重启后恢复。需允许系统闹钟/提醒和通知权限，遵循系统勿扰设置。
 - 本地缓存任务和待同步的完成状态、专注记录；联网后重放，专注记录按会话 ID 去重。
 
-<!-- BEGIN WATCH SCREENSHOTS -->
-## 手表界面
-
-以下图片由实际 Flutter 页面自动渲染，使用固定演示任务、时间和字体；尺寸为 480×480、density 320，非实机截图。
-
-<table>
-  <tr>
-    <td align="center"><img src="docs/screenshots/tasks.png" width="200" height="200" alt="每日任务"><br>每日任务</td>
-    <td align="center"><img src="docs/screenshots/calendar.png" width="200" height="200" alt="日期日历"><br>日期日历</td>
-    <td align="center"><img src="docs/screenshots/task-detail.png" width="200" height="200" alt="任务详情"><br>任务详情</td>
-  </tr>
-  <tr>
-    <td align="center"><img src="docs/screenshots/focus-setup.png" width="200" height="200" alt="专注设置"><br>专注设置</td>
-    <td align="center"><img src="docs/screenshots/focus-running.png" width="200" height="200" alt="专注计时"><br>专注计时</td>
-    <td align="center"><img src="docs/screenshots/focus-finished.png" width="200" height="200" alt="专注结束"><br>专注结束</td>
-  </tr>
-</table>
-
-更新全部图片与此区块：
-
-```bash
-python3 scripts/capture_watch_ui.py
-```
-
-<!-- END WATCH SCREENSHOTS -->
-
 ## 部署与兼容性
 
 对外名称为 Dayflow。内部 Flutter 包名 `life_assistant`、Android 包名 `com.example.life_assistant` 保留，已有安装和数据库无需因改名迁移。Hermes skill 使用 `skills/dayflow/`，命令为 `/dayflow`。
@@ -87,7 +61,7 @@ cd android
 
 参与开发见 [CONTRIBUTING.md](CONTRIBUTING.md)，设备适配和产品约定见 [AGENTS.md](AGENTS.md)。
 
-README 的手表界面图片可用 `python3 scripts/capture_watch_ui.py` 一次更新，详见 [截图自动化说明](docs/screenshots.md)。CI 同时生成 `watch-ui-docs` 图片与文档产物。
+手表截图的生成方法见 [截图自动化说明](docs/screenshots.md)。CI 会生成 `watch-ui-docs` 图片与文档产物。
 
 ## 导出公开源码
 
