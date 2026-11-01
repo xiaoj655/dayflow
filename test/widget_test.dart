@@ -21,6 +21,7 @@ Future<AppController> configure(
   bool round = true,
   double textScale = 1,
   FakeRepository? repository,
+  DateTime Function()? clock,
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = round
@@ -34,6 +35,7 @@ Future<AppController> configure(
     repository: repository ?? FakeRepository(),
     store: MemoryStore(),
     engine: FakeFocusEngine(),
+    clock: clock,
   );
   await app.initialize();
   await app.refresh();
@@ -210,33 +212,52 @@ void main() {
     expect(find.text('技巧或教程（可选）'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
-  testWidgets('Phone creates a weekly task with all content preserved', (
-    tester,
-  ) async {
-    final app = await configure(tester, round: false);
-    await tester.tap(find.text('添加任务'));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(EditableText).at(0), '周末观察');
-    await tester.enterText(find.byType(EditableText).at(1), '记录三个观察细节。');
-    await tester.enterText(find.byType(EditableText).at(2), '先描述，再归纳。');
-    await reveal(tester, find.text('不重复'));
-    await tester.tap(find.text('不重复'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('每周').last);
-    await tester.pumpAndSettle();
-    await reveal(tester, find.text('一'));
-    await tester.tap(find.text('一'));
-    await tester.pumpAndSettle();
-    await reveal(tester, find.text('保存'));
-    await tester.tap(find.text('保存'));
-    await tester.pumpAndSettle();
-    final saved = app.tasks.singleWhere((task) => task.title == '周末观察');
-    expect(saved.content, '记录三个观察细节。');
-    expect(saved.tutorial, '先描述，再归纳。');
-    expect(saved.recurrence, 'weekly');
-    expect(saved.weekdays, contains(1));
-    expect(tester.takeException(), isNull);
-  });
+  for (final date in [
+    DateTime.utc(2026, 11, 1, 4),
+    DateTime.utc(2026, 11, 2, 4),
+  ]) {
+    testWidgets(
+      'Phone creates a weekly task with all content preserved (weekday ${date.weekday})',
+      (tester) async {
+        final app = await configure(tester, round: false, clock: () => date);
+        await tester.tap(find.text('添加任务'));
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byType(EditableText).at(0), '周末观察');
+        await tester.enterText(find.byType(EditableText).at(1), '记录三个观察细节。');
+        await tester.enterText(find.byType(EditableText).at(2), '先描述，再归纳。');
+        await reveal(tester, find.text('不重复'));
+        await tester.tap(find.text('不重复'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('每周').last);
+        await tester.pumpAndSettle();
+        final monday = find.widgetWithText(FilterChip, '一');
+        final defaultDay = find.widgetWithText(
+          FilterChip,
+          ['一', '二', '三', '四', '五', '六', '日'][date.weekday - 1],
+        );
+        expect(tester.widget<FilterChip>(defaultDay).selected, isTrue);
+        await reveal(tester, monday);
+        if (!tester.widget<FilterChip>(monday).selected) {
+          expect(monday.hitTestable(), findsOneWidget);
+          await tester.tap(monday);
+          await tester.pumpAndSettle();
+        }
+        expect(tester.widget<FilterChip>(monday).selected, isTrue);
+        await reveal(tester, find.text('保存'));
+        await tester.tap(find.text('保存'));
+        await tester.pumpAndSettle();
+        final saved = app.tasks.singleWhere((task) => task.title == '周末观察');
+        expect(saved.content, '记录三个观察细节。');
+        expect(saved.tutorial, '先描述，再归纳。');
+        expect(saved.recurrence, 'weekly');
+        expect(
+          saved.weekdays,
+          orderedEquals(({1, date.weekday}.toList()..sort())),
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
   for (final diameter in [200.0, 240.0, 360.0]) {
     testWidgets(
       'Task focus at ${diameter}dp hides selector and retains task/action',
