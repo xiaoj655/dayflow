@@ -1,0 +1,63 @@
+name: Check source and Android build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.8'
+          channel: stable
+          cache: true
+      - name: Reject private deployment files in Git
+        run: |
+          python3 - <<'PY'
+          import subprocess
+          from pathlib import Path
+          from scripts.export_source import is_public
+          tracked = subprocess.check_output(['git', 'ls-files', '-z']).decode().split('\0')
+          rejected = [path for path in tracked if path and not is_public(Path(path))]
+          if rejected:
+              raise SystemExit('Unexpected tracked files; review source export rules:\n' + '\n'.join(rejected))
+          PY
+      - name: Prepare example configuration (no database access)
+        run: |
+          python3 scripts/configure.py init
+          python3 scripts/configure.py check --allow-example
+          python3 scripts/export_source.py --check
+      - name: Python offline tests (database tests skipped)
+        run: python3 -m unittest discover -s test -p '*test*.py'
+      - run: flutter pub get --enforce-lockfile
+      - run: flutter analyze
+      - run: flutter test --exclude-tags=database
+      - name: Render watch UI and refresh README gallery
+        run: python3 scripts/capture_watch_ui.py
+      - uses: actions/upload-artifact@v7
+        with:
+          name: watch-ui-docs
+          path: |
+            README.md
+            docs/screenshots/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Android release build with example configuration
+        run: flutter build apk --release --target-platform android-arm,android-arm64
+      - name: Android timer and DND tests
+        working-directory: android
+        run: ./gradlew :app:testDebugUnitTest --no-daemon

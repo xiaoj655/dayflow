@@ -1,0 +1,13 @@
+[Unit]
+Description=Dayflow build memory budget
+
+[Slice]
+MemoryAccounting=yes
+MemoryHigh=3500M
+MemoryMax=4G
+MemorySwapMax=512M
+ManagedOOMMemoryPressure=kill
+ManagedOOMMemoryPressureLimit=50%
+
+[Install]
+WantedBy=slices.target

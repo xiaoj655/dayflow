@@ -1,0 +1,18 @@
+{
+  "renderer": "Flutter widget test",
+  "logicalSize": [
+    240,
+    240
+  ],
+  "pixelRatio": 2,
+  "clockUtc": "2026-11-01T02:08:00Z",
+  "fontSha256": "a3041811a78c361b1de50f953c805e0244951c21c5bd412f7232ef0d899af0da",
+  "images": {
+    "tasks.png": "b68c05fe9e387ddf3886b4e527f1100023742baf27dbe33f1ce20163456cfb0c",
+    "calendar.png": "d737785c75d4b246bca51564eef83dc21c01e762e0a7ea3d8297ef4982bb85f5",
+    "task-detail.png": "d5c340c91ccfecefbb0f0ec89ed6b31629e714e42e9e5f721405f836f280602d",
+    "focus-setup.png": "78967531c6989da853de00371663b7d7be65b88c8037c31bf68d08d5328fb0fc",
+    "focus-running.png": "7efd874dad014784a2c34118b3af0feb5b4d30b3929235a4f681736c6b1d5b5b",
+    "focus-finished.png": "2473f9dfcc7b46b823623dc4a71ef9f3e3aecd51c224ed3c49897e38b3c3d31f"
+  }
+}

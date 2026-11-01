@@ -1,0 +1,9 @@
+* text=auto
+
+# Keep the Unix wrapper runnable when checked out on Windows.
+gradlew text eol=lf
+*.sh text eol=lf
+*.bat text eol=crlf
+
+*.png binary
+*.jar binary

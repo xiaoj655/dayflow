@@ -1,0 +1,8 @@
+{
+  "host": "db.example.invalid",
+  "port": 3306,
+  "user": "life_assistant",
+  "password": "CHANGE_ME",
+  "database": "life_assistant",
+  "certificateSha256": "0000000000000000000000000000000000000000000000000000000000000000"
+}
