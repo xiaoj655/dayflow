@@ -90,6 +90,7 @@ class FocusTimer(private val context: Context) {
         if ((0 until existing.length()).any { existing.getJSONObject(it).getString("id") == value.getString("id") }) return
         val planned = value.getInt("plannedSeconds")
         val actual = if (status == "completed") planned else ((planned * 1000L - remaining(value)) / 1000).toInt().coerceIn(0, planned)
+        if (value.getString("kind") == "focus" && actual < 180) return
         existing.put(JSONObject().put("id", value.getString("id"))
             .put("space", value.optString("space", "life")).put("taskId", value.getString("taskId")).put("taskTitle", value.getString("taskTitle"))
             .put("kind", value.getString("kind")).put("plannedSeconds", planned)

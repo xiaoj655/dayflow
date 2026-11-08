@@ -90,12 +90,42 @@ class FocusTimerTest {
 
     @Test fun revokedPermissionStillAllowsStopAndKeepsItsRecord() {
         start()
+        ShadowSystemClock.advanceBy(Duration.ofMinutes(3))
         shadowOf(manager).setNotificationPolicyAccessGranted(false)
         timer.handle("stop", emptyMap<Any, Any>())
         val snapshot = timer.snapshot()
         assertNull(snapshot["state"])
         assertEquals(Condition.STATE_FALSE, FocusDnd(context).condition().state)
         assertEquals("interrupted", (((snapshot["records"] as List<*>).single()) as Map<*, *>)["status"])
+    }
+
+    @Test fun shortFocusIsDiscardedEvenAfterALongPause() {
+        start()
+        ShadowSystemClock.advanceBy(Duration.ofSeconds(179))
+        timer.handle("pause", emptyMap<Any, Any>())
+        ShadowSystemClock.advanceBy(Duration.ofHours(1))
+        val snapshot = timer.handle("stop", emptyMap<Any, Any>())
+        assertNull(snapshot["state"])
+        assertTrue((snapshot["records"] as List<*>).isEmpty())
+        assertEquals(Condition.STATE_FALSE, FocusDnd(context).condition().state)
+    }
+
+    @Test fun exactlyThreeMinutesOfActiveFocusIsRecorded() {
+        start()
+        ShadowSystemClock.advanceBy(Duration.ofSeconds(179))
+        timer.handle("pause", emptyMap<Any, Any>())
+        ShadowSystemClock.advanceBy(Duration.ofHours(1))
+        timer.handle("resume", emptyMap<Any, Any>())
+        ShadowSystemClock.advanceBy(Duration.ofSeconds(1))
+        val snapshot = timer.handle("stop", emptyMap<Any, Any>())
+        assertEquals(180, ((snapshot["records"] as List<*>).single() as Map<*, *>)["actualSeconds"])
+    }
+
+    @Test fun shortRestIsStillRecorded() {
+        start(kind = "rest")
+        ShadowSystemClock.advanceBy(Duration.ofSeconds(10))
+        val snapshot = timer.handle("stop", emptyMap<Any, Any>())
+        assertEquals(10, ((snapshot["records"] as List<*>).single() as Map<*, *>)["actualSeconds"])
     }
 
     @Test fun nativeSnapshotRetainsTaskNameAndStartupAction() {

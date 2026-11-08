@@ -79,6 +79,8 @@ class AppController extends ChangeNotifier {
           /* A damaged cache must not prevent opening the app. */
         }
       }
+      _pendingSessions.removeWhere((_, row) => !_retainSession(row));
+      _historyCache.removeWhere((_, row) => !_retainSession(row));
       _loadCache();
       await refreshFocus();
     } finally {
@@ -258,6 +260,7 @@ class AppController extends ChangeNotifier {
     if (records.isNotEmpty) {
       for (final item in records) {
         final row = Map<String, dynamic>.from(item as Map);
+        if (!_retainSession(row)) continue;
         _pendingSessions[row['id'] as String] = row;
         _historyCache[row['id'] as String] = {
           'id': row['id'],
@@ -283,9 +286,16 @@ class AppController extends ChangeNotifier {
     _notify();
   }
 
+  // Use active time, never the wall-clock span (which includes pauses).
+  bool _retainSession(Map<String, dynamic> row) =>
+      row['kind'] != 'focus' ||
+      (int.tryParse('${row['actualSeconds'] ?? row['actual_seconds']}') ?? 0) >=
+          180;
+
   Future<List<Map<String, dynamic>>> history() async {
     try {
       for (final row in await repository.history()) {
+        if (!_retainSession(row)) continue;
         _historyCache[row['id']?.toString() ??
                 '${row['started_at']}-${row['task_title']}'] =
             row;

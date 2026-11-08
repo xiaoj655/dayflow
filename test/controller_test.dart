@@ -130,6 +130,79 @@ void main() {
     expect(repo.sessions.values.single['status'], 'completed');
     app.dispose();
   });
+  test('Short focus is acknowledged but never cached or uploaded', () async {
+    final repo = FakeRepository();
+    final engine = FakeFocusEngine();
+    final store = MemoryStore();
+    final app = AppController(repository: repo, store: store, engine: engine);
+    await app.initialize();
+    await app.refresh();
+    await app.start(app.tasks.first, 5);
+    engine.elapse(const Duration(seconds: 179));
+    await app.focusAction('pause');
+    engine.elapse(const Duration(hours: 1));
+    await app.focusAction('stop');
+    await app.refresh();
+    expect(app.focus, isNull);
+    expect(engine.records, isEmpty);
+    expect(repo.sessions, isEmpty);
+    final saved = jsonDecode(store.values['life_assistant.v1']!) as Map;
+    expect(saved['sessions'], isEmpty);
+    expect(saved['history'], isEmpty);
+    app.dispose();
+  });
+
+  test(
+    'Restore and history filter short focus but keep the boundary and rest',
+    () async {
+      final repo = FakeRepository();
+      final store = MemoryStore();
+      final rows = <String, Map<String, dynamic>>{
+        for (final seconds in [0, 179, 180, 181])
+          '$seconds': {
+            'id': '$seconds',
+            'kind': 'focus',
+            'actualSeconds': seconds,
+            'startedAt': 0,
+            'endedAt': 3600000,
+          },
+        'rest': {'id': 'rest', 'kind': 'rest', 'actualSeconds': 10},
+      };
+      Map<String, dynamic> historyRow(Map<String, dynamic> row) => {
+        'id': row['id'],
+        'kind': row['kind'],
+        'actual_seconds': row['actualSeconds'].toString(),
+        'started_at': '2026-11-08 00:00:00',
+      };
+      store.values['life_assistant.v1'] = jsonEncode({
+        'sessions': rows,
+        'history': rows.map((id, row) => MapEntry(id, historyRow(row))),
+      });
+      final app = AppController(
+        repository: repo,
+        store: store,
+        engine: FakeFocusEngine(),
+      );
+      await app.initialize();
+      await app.refresh();
+      expect(repo.sessions.keys, unorderedEquals(['180', '181', 'rest']));
+      // Simulate short records that already exist in the database.
+      repo.sessions.addAll(
+        rows.map((id, row) => MapEntry(id, historyRow(row))),
+      );
+      expect(
+        (await app.history()).map((row) => row['id']),
+        unorderedEquals(['180', '181', 'rest']),
+      );
+      repo.fail = true;
+      expect(
+        (await app.history()).map((row) => row['id']),
+        unorderedEquals(['180', '181', 'rest']),
+      );
+      app.dispose();
+    },
+  );
+
   test('Durations and required task fields are validated', () async {
     final app = AppController(
       repository: FakeRepository(),
