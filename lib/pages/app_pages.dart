@@ -1479,7 +1479,8 @@ class _TimerRing extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final rect = Rect.fromCircle(
       center: size.center(Offset.zero),
-      radius: size.shortestSide / 2 - 10,
+      // Keep the 3 dp stroke just 1 dp inside the circular display edge.
+      radius: size.shortestSide / 2 - 2.5,
     );
     final paint = Paint()
       ..style = PaintingStyle.stroke
