@@ -8,6 +8,42 @@ import 'package:life_assistant/models/task.dart';
 import 'fakes.dart';
 
 void main() {
+  test('Spaces isolate tasks and completion and survive reopening', () async {
+    final store = MemoryStore();
+    final repo = FakeRepository();
+    final engine = FakeFocusEngine();
+    final app = AppController(repository: repo, store: store, engine: engine);
+    await app.initialize();
+    await app.refresh();
+    final work = DailyTask(
+      id: 'work',
+      templateId: 'work',
+      date: app.date,
+      title: '工作',
+      content: '内容',
+      space: 'work',
+    );
+    app.tasks = [...app.tasks, work];
+    expect(app.pending.any((t) => t.id == 'work'), false);
+    await app.selectSpace('work');
+    expect(app.pending.single.id, 'work');
+    await app.toggle(work);
+    expect(app.completed.single.space, 'work');
+    await app.selectSpace('life');
+    expect(app.completed, isEmpty);
+    final restored = AppController(
+      repository: repo,
+      store: store,
+      engine: engine,
+    );
+    await restored.initialize();
+    expect(restored.space, 'life');
+    await restored.selectSpace('work');
+    expect(restored.completed.single.id, 'work');
+    app.dispose();
+    restored.dispose();
+  });
+
   test('Shanghai date crosses UTC day boundary correctly', () {
     expect(dayKey(chinaNow(DateTime.utc(2026, 10, 24, 17))), '2026-10-25');
   });

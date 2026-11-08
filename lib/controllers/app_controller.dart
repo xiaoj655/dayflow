@@ -21,6 +21,16 @@ class AppController extends ChangeNotifier {
   final LocalStore store;
   final FocusEngine engine;
   final DateTime Function() clock;
+  String space = 'life';
+  List<DailyTask> get visibleTasks =>
+      tasks.where((t) => t.space == space).toList();
+  Future<void> selectSpace(String value) async {
+    if (!['life', 'work'].contains(value)) return;
+    space = value;
+    _notify();
+    await _persist();
+  }
+
   String date = dayKey(chinaNow());
   List<DailyTask> tasks = [];
   FocusSession? focus;
@@ -30,15 +40,16 @@ class AppController extends ChangeNotifier {
   bool loading = false, offline = false;
   bool _closed = false;
   final Map<String, dynamic> _cache = {};
+  final Map<String, Map<String, dynamic>> _historyCache = {};
   final Map<String, dynamic> _pendingCompletion = {};
   final Map<String, Map<String, dynamic>> _pendingSessions = {};
   Future<void> _writes = Future.value();
   Future<void>? _refreshing, _focusReading;
   String get today => dayKey(chinaNow(clock()));
   List<DailyTask> get pending =>
-      tasks.where((task) => !task.completed).toList();
+      visibleTasks.where((task) => !task.completed).toList();
   List<DailyTask> get completed =>
-      tasks.where((task) => task.completed).toList();
+      visibleTasks.where((task) => task.completed).toList();
 
   Future<void> initialize() async {
     try {
@@ -47,6 +58,13 @@ class AppController extends ChangeNotifier {
       if (saved != null) {
         try {
           final data = jsonDecode(saved) as Map<String, dynamic>;
+          space = data['space'] == 'work' ? 'work' : 'life';
+          for (final entry
+              in (data['history'] as Map<String, dynamic>? ?? {}).entries) {
+            _historyCache[entry.key] = Map<String, dynamic>.from(
+              entry.value as Map,
+            );
+          }
           _cache.addAll(data['days'] as Map<String, dynamic>? ?? {});
           _pendingCompletion.addAll(
             data['completion'] as Map<String, dynamic>? ?? {},
@@ -94,6 +112,8 @@ class AppController extends ChangeNotifier {
   Future<void> _persist() {
     _cache[date] = tasks.map((task) => task.toJson()).toList();
     final snapshot = jsonEncode({
+      'history': _historyCache,
+      'space': space,
       'days': _cache,
       'completion': _pendingCompletion,
       'sessions': _pendingSessions,
@@ -239,6 +259,20 @@ class AppController extends ChangeNotifier {
       for (final item in records) {
         final row = Map<String, dynamic>.from(item as Map);
         _pendingSessions[row['id'] as String] = row;
+        _historyCache[row['id'] as String] = {
+          'id': row['id'],
+          'space': row['space'] ?? 'life',
+          'task_title': row['taskTitle'],
+          'kind': row['kind'],
+          'status': row['status'],
+          'actual_seconds': row['actualSeconds'],
+          'started_at': sqlTime(
+            DateTime.fromMillisecondsSinceEpoch(row['startedAt'] as int),
+          ),
+          'ended_at': sqlTime(
+            DateTime.fromMillisecondsSinceEpoch(row['endedAt'] as int),
+          ),
+        };
       }
       await _persist();
       await engine.call('ack', {
@@ -249,6 +283,23 @@ class AppController extends ChangeNotifier {
     _notify();
   }
 
+  Future<List<Map<String, dynamic>>> history() async {
+    try {
+      for (final row in await repository.history()) {
+        _historyCache[row['id']?.toString() ??
+                '${row['started_at']}-${row['task_title']}'] =
+            row;
+      }
+      await _persist();
+    } catch (_) {
+      if (_historyCache.isEmpty) rethrow;
+    }
+    return _historyCache.values.toList()..sort(
+      (a, b) =>
+          b['started_at'].toString().compareTo(a['started_at'].toString()),
+    );
+  }
+
   Future<void> start(DailyTask task, int minutes, {bool rest = false}) async {
     if (minutes < 5 || minutes > 180 || minutes % 5 != 0) {
       throw const FormatException('时长须为 5 分钟的倍数');
@@ -256,6 +307,7 @@ class AppController extends ChangeNotifier {
     await _applyFocus(
       await engine.call('start', {
         'id': newId(),
+        'space': task.space,
         'taskId': task.id,
         'taskTitle': task.title,
         'startAction': task.startAction,

@@ -1,6 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+
+import 'app_colors.dart';
+
 import 'package:flutter/services.dart';
 
 import 'controllers/app_controller.dart';
@@ -130,14 +133,26 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     ),
     debugShowCheckedModeBanner: false,
     theme: ThemeData(
+      dialogTheme: const DialogThemeData(backgroundColor: AppColors.overlay),
+      snackBarTheme: const SnackBarThemeData(
+        backgroundColor: AppColors.overlay,
+        contentTextStyle: TextStyle(color: AppColors.text),
+      ),
       brightness: Brightness.dark,
-      scaffoldBackgroundColor: Colors.black,
+      scaffoldBackgroundColor: AppColors.background,
       colorScheme: const ColorScheme.dark(
         primary: accent,
-        onPrimary: Color(0xFF181014),
+        onSurface: AppColors.text,
+        onPrimary: AppColors.background,
         surface: surface,
-        secondary: accent,
-        onSecondary: Color(0xFF181014),
+        surfaceContainerHigh: AppColors.overlay,
+        outline: AppColors.faint,
+        secondary: AppColors.work,
+        onSecondary: AppColors.background,
+        onSurfaceVariant: AppColors.muted,
+        tertiary: AppColors.reminder,
+        onTertiary: AppColors.background,
+        error: AppColors.primary,
       ),
       platform: TargetPlatform.android,
       useMaterial3: true,
@@ -162,6 +177,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           minimumSize: const Size(48, 48),
           shape: const StadiumBorder(),
           textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
@@ -173,7 +189,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
           shape: const StadiumBorder(),
           side: BorderSide.none,
           backgroundColor: surface,
-          foregroundColor: Colors.white,
+          foregroundColor: AppColors.text,
         ),
       ),
       inputDecorationTheme: const InputDecorationTheme(

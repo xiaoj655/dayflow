@@ -771,4 +771,16 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+  testWidgets('Completion notice with undo disappears after three seconds', (
+    tester,
+  ) async {
+    await configure(tester);
+    await tester.tap(find.byTooltip('完成街头观察'));
+    await tester.pumpAndSettle();
+    expect(find.text('撤销'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    expect(find.text('撤销'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 }

@@ -3,6 +3,9 @@ import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+
+import '../app_colors.dart';
+
 import 'package:flutter/rendering.dart';
 
 import '../models/task.dart';
@@ -25,13 +28,13 @@ class WearEdgeButton extends StatelessWidget {
   final bool busy;
   @override
   Widget build(BuildContext context) => SizedBox(
-    height: 56,
+    height: 42,
     child: FilledButton(
       style: FilledButton.styleFrom(
-        shape: const RoundedRectangleBorder(),
-        minimumSize: const Size(0, 56),
+        shape: const StadiumBorder(),
+        minimumSize: const Size(0, 42),
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       ),
       onPressed: busy ? null : onPressed,
       child: Row(
@@ -134,7 +137,7 @@ class _TimePainter extends CustomPainter {
           (letter) => TextPainter(
             text: TextSpan(
               text: letter,
-              style: const TextStyle(fontSize: 11, color: Color(0xFFB6B6BE)),
+              style: const TextStyle(fontSize: 11, color: AppColors.muted),
             ),
             textDirection: TextDirection.ltr,
           )..layout(),
@@ -240,7 +243,7 @@ class _WearDatePickerState extends State<WearDatePicker> {
 
   void updateMonth() {
     if (!mounted || controller?.hasClients != true) return;
-    final week = (controller!.offset / rowHeight).round() + 1;
+    final week = (controller!.offset / rowHeight).round();
     final date = dayAt(week.clamp(0, weekCount - 1), 3);
     if (date.year != month.year || date.month != month.month) {
       setState(() => month = DateTime(date.year, date.month));
@@ -289,7 +292,7 @@ class _WearDatePickerState extends State<WearDatePicker> {
 
   void moveMonth(int delta) {
     final date = DateTime(month.year, month.month + delta, 15);
-    moveTo((weekOf(date) - 1) * rowHeight);
+    moveTo(weekOf(date) * rowHeight);
   }
 
   Future<void> pick(DateTime date) async {
@@ -314,10 +317,10 @@ class _WearDatePickerState extends State<WearDatePicker> {
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, size) {
       final top = size.maxHeight * .12, bottom = size.maxHeight * .14;
-      rowHeight = (size.maxHeight - top - bottom - 54) / 3;
+      rowHeight = (size.maxHeight - top - bottom - 54) / 2;
       controller ??= ScrollController(
         initialScrollOffset:
-            math.max(0, weekOf(widget.initialDate) - 1) * rowHeight,
+            math.max(0, weekOf(widget.initialDate)) * rowHeight,
       )..addListener(updateMonth);
       final today = dayKey(chinaNow(AppClock.now(context)));
       final selected = dayKey(widget.initialDate);
@@ -383,7 +386,7 @@ class _WearDatePickerState extends State<WearDatePicker> {
                             day,
                             style: const TextStyle(
                               fontSize: 10,
-                              color: Color(0xFF98989D),
+                              color: AppColors.muted,
                             ),
                           ),
                         ),
@@ -431,42 +434,49 @@ class _WearDatePickerState extends State<WearDatePicker> {
                             label: '$key${isToday ? ' 今天' : ''}',
                             button: true,
                             selected: active,
-                            child: Center(
-                              child: SizedBox.square(
-                                dimension: math.min(
-                                  rowHeight - 2,
-                                  size.maxWidth * .8 / 7,
-                                ),
-                                child: Material(
-                                  color: active ? primary : Colors.transparent,
-                                  shape: CircleBorder(
-                                    side: isToday && !active
-                                        ? BorderSide(color: primary)
-                                        : BorderSide.none,
-                                  ),
-                                  clipBehavior: Clip.antiAlias,
-                                  child: InkWell(
-                                    key: ValueKey('calendar-day-$key'),
-                                    onTap: !busy && allowed
-                                        ? () => pick(date)
-                                        : null,
-                                    child: Center(
-                                      child: FittedBox(
-                                        fit: BoxFit.scaleDown,
-                                        child: Text(
-                                          '${date.day}',
-                                          style: TextStyle(
-                                            fontSize: 14,
-                                            fontWeight: active || isToday
-                                                ? FontWeight.w700
-                                                : FontWeight.w400,
-                                            color: active
-                                                ? const Color(0xFF181014)
-                                                : !allowed ||
-                                                      date.month != month.month
-                                                ? const Color(0xFF98989D)
-                                                : Colors.white,
-                                          ),
+                            child: SizedBox(
+                              height: rowHeight,
+                              child: Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  key: ValueKey('calendar-day-$key'),
+                                  borderRadius: BorderRadius.circular(10),
+                                  onTap: !busy && allowed
+                                      ? () => pick(date)
+                                      : null,
+                                  child: Center(
+                                    child: Container(
+                                      width: math.min(
+                                        rowHeight - 4,
+                                        size.maxWidth * .8 / 7,
+                                      ),
+                                      height: math.min(
+                                        rowHeight - 4,
+                                        size.maxWidth * .8 / 7,
+                                      ),
+                                      alignment: Alignment.center,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: active
+                                            ? primary
+                                            : Colors.transparent,
+                                        border: isToday && !active
+                                            ? Border.all(color: primary)
+                                            : null,
+                                      ),
+                                      child: Text(
+                                        '${date.day}',
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: active || isToday
+                                              ? FontWeight.w700
+                                              : FontWeight.w400,
+                                          color: active
+                                              ? AppColors.background
+                                              : !allowed ||
+                                                    date.month != month.month
+                                              ? AppColors.muted
+                                              : AppColors.text,
                                         ),
                                       ),
                                     ),

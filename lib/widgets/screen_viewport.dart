@@ -2,6 +2,9 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+
+import '../app_colors.dart';
+
 import 'package:flutter/rendering.dart';
 
 import 'wear_controls.dart';
@@ -245,9 +248,9 @@ class _ScrollArcPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 3.9
       ..strokeCap = StrokeCap.round
-      ..color = const Color(0xFF333336);
+      ..color = AppColors.surface;
     canvas.drawArc(track, start, sweep, false, paint);
-    paint.color = const Color(0xFFAEAEB2);
+    paint.color = AppColors.muted;
     canvas.drawArc(
       track,
       start + sweep * (1 - thumb) * progress,

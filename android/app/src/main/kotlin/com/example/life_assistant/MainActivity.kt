@@ -16,6 +16,7 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    private var workPermissions = false
     private var permissionResult: MethodChannel.Result? = null
     private var rotaryChannel: MethodChannel? = null
     private val touchHaptics by lazy { TouchHaptics(this) }
@@ -23,12 +24,21 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         val messenger = flutterEngine.dartExecutor.binaryMessenger
+        MethodChannel(messenger, "life_assistant/work").setMethodCallHandler { call, result ->
+            try {
+                if (call.method == "permissions") {
+                    check(permissionResult == null) { "正在等待系统授权" }
+                    workPermissions = true; permissionResult = result; advancePermissions()
+                } else result.success(WorkMode(this).handle(call.method, call.arguments as? Map<*, *> ?: emptyMap<Any, Any>())) }
+            catch (error: Exception) { result.error("WORK_ERROR", error.message, null) }
+        }
         rotaryChannel = MethodChannel(messenger, "life_assistant/rotary")
         MethodChannel(messenger, "life_assistant/focus")
             .setMethodCallHandler { call, result ->
                 try {
                     if (call.method == "permissions") {
                         check(permissionResult == null) { "正在等待系统授权" }
+                        workPermissions = false
                         permissionResult = result
                         advancePermissions()
                     } else {
@@ -71,6 +81,10 @@ class MainActivity : FlutterActivity() {
             }
             if (Build.VERSION.SDK_INT >= 31 && !getSystemService(AlarmManager::class.java).canScheduleExactAlarms()) {
                 startActivityForResult(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:$packageName")), 75)
+                return
+            }
+            if (workPermissions) {
+                permissionResult?.success(WorkMode(this).snapshot()); permissionResult = null; workPermissions = false
                 return
             }
             if (!FocusDnd(this).granted) {

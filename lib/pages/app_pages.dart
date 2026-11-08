@@ -2,6 +2,9 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+
+import '../app_colors.dart';
+
 import 'package:flutter/services.dart';
 
 import '../controllers/app_controller.dart';
@@ -10,11 +13,12 @@ import '../platform/rotary_input.dart';
 import '../platform/touch_haptics.dart';
 import '../widgets/screen_viewport.dart';
 import '../widgets/wear_controls.dart';
+import '../widgets/minute_picker.dart';
+import '../widgets/segmented_day_timeline.dart';
 
-// sRGB conversion of oklch(71.2% 0.194 13.428).
-const accent = Color(0xFFFF637E);
-const surface = Color(0xFF1C1C1E);
-const muted = Color(0xFF98989D);
+const accent = AppColors.primary;
+const surface = AppColors.surface;
+const muted = AppColors.muted;
 
 Route<T> appRoute<T>(BuildContext context, {required WidgetBuilder builder}) =>
     ScreenShape.of(context)
@@ -82,11 +86,12 @@ void showNotice(
 }) {
   final round = ScreenShape.of(context);
   ScaffoldMessenger.of(context)
-    ..hideCurrentSnackBar()
+    ..clearSnackBars()
     ..showSnackBar(
       SnackBar(
         content: Text(message, textAlign: TextAlign.center),
         action: action,
+        persist: false,
         duration: const Duration(seconds: 3),
         behavior: SnackBarBehavior.floating,
         margin: round
@@ -127,7 +132,7 @@ class AppPage extends StatelessWidget {
     required this.children,
     this.storageKey,
     this.enableRotary = true,
-    this.showTime = true,
+    this.showTime = false,
     this.bottomAction,
     this.topPadding,
   });
@@ -150,14 +155,14 @@ class AppPage extends StatelessWidget {
             enableRotary: enableRotary,
             showTime: showTime,
             footerInset: bottomAction == null ? 0 : 64,
-            topPadding: topPadding,
+            topPadding: topPadding ?? (isRound ? 18 : null),
             children: children,
           ),
           if (bottomAction != null)
             Positioned(
-              left: isRound ? 0 : 16,
-              right: isRound ? 0 : 16,
-              bottom: isRound ? 0 : 16,
+              left: isRound ? 38 : 16,
+              right: isRound ? 38 : 16,
+              bottom: isRound ? 24 : 16,
               child: bottomAction!,
             ),
         ],
@@ -238,13 +243,20 @@ class _TaskListPageState extends State<TaskListPage> {
     final session = controller.focus;
     if (session != null) {
       _open(context, FocusPage(controller: controller, isRound: isRound));
-    } else if (controller.tasks.isNotEmpty) {
+    } else {
       _open(
         context,
         FocusSetupPage(
           controller: controller,
           isRound: isRound,
-          initialTask: controller.pending.firstOrNull ?? controller.tasks.first,
+          initialTask: DailyTask(
+            id: '',
+            templateId: '',
+            date: controller.date,
+            title: '自由专注',
+            content: '',
+            space: controller.space,
+          ),
           allowTaskSelection: true,
         ),
       );
@@ -263,54 +275,48 @@ class _TaskListPageState extends State<TaskListPage> {
         final dateLabel = taskDateLabel(controller.date, controller.today);
         return AppPage(
           isRound: isRound,
-          topPadding: isRound
-              ? MediaQuery.sizeOf(context).shortestSide * .12
-              : null,
-          storageKey: PageStorageKey('daily-tasks-${controller.date}'),
+          topPadding: isRound ? 12 : null,
+          showTime: false,
+          storageKey: PageStorageKey(
+            'daily-tasks-${controller.space}-${controller.date}',
+          ),
           children: [
-            Center(
-              child: TextButton.icon(
-                key: const ValueKey('task-date-selector'),
-                style: TextButton.styleFrom(
-                  foregroundColor: isRound ? muted : Colors.white,
-                  minimumSize: isRound ? const Size(48, 28) : null,
-                  padding: isRound
-                      ? const EdgeInsets.symmetric(horizontal: 4, vertical: 2)
-                      : null,
-                  tapTargetSize: isRound
-                      ? MaterialTapTargetSize.shrinkWrap
-                      : null,
-                ),
-                icon: Icon(
-                  Icons.calendar_today_rounded,
-                  size: isRound ? 12 : 16,
-                ),
-                label: Text(
-                  dateLabel == controller.date.substring(5)
-                      ? controller.date
-                      : '$dateLabel · ${controller.date.substring(5)}',
-                  style: TextStyle(
-                    fontSize: isRound ? 12 : 16,
-                    fontWeight: isRound ? FontWeight.w500 : FontWeight.w600,
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                for (final entry in {'life': '生活', 'work': '工作'}.entries)
+                  TextButton(
+                    style: TextButton.styleFrom(
+                      minimumSize: const Size(36, 36),
+                      padding: const EdgeInsets.symmetric(horizontal: 3),
+                    ),
+                    onPressed: () => controller.selectSpace(entry.key),
+                    child: Text(
+                      entry.value,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: controller.space == entry.key ? accent : muted,
+                      ),
+                    ),
+                  ),
+                Flexible(
+                  child: TextButton(
+                    key: const ValueKey('task-date-selector'),
+                    style: TextButton.styleFrom(
+                      minimumSize: const Size(40, 36),
+                      padding: EdgeInsets.zero,
+                    ),
+                    onPressed: () => _open(
+                      context,
+                      TaskDatePage(controller: controller, isRound: isRound),
+                    ),
+                    child: Text(
+                      dateLabel,
+                      style: const TextStyle(color: muted, fontSize: 12),
+                    ),
                   ),
                 ),
-                onPressed: () async {
-                  if (isRound) {
-                    _open(
-                      context,
-                      TaskDatePage(controller: controller, isRound: true),
-                    );
-                  } else {
-                    final date = await showDatePicker(
-                      context: context,
-                      initialDate: DateTime.parse(controller.date),
-                      firstDate: DateTime(2020),
-                      lastDate: DateTime(2100),
-                    );
-                    if (date != null) await controller.selectDate(date);
-                  }
-                },
-              ),
+              ],
             ),
             if (controller.date != controller.today)
               Center(
@@ -338,6 +344,13 @@ class _TaskListPageState extends State<TaskListPage> {
                   ),
                 ],
               ),
+            if (controller.space == 'work') const WorkSummary(),
+            Center(
+              child: Text(
+                '${controller.completed.length} / ${controller.visibleTasks.length} 已完成',
+                style: const TextStyle(color: muted, fontSize: 11),
+              ),
+            ),
             SizedBox(height: isRound ? 6 : 12),
             if (controller.focus != null)
               Padding(
@@ -377,7 +390,7 @@ class _TaskListPageState extends State<TaskListPage> {
                 ),
               ),
             if ((controller.initializing || controller.loading) &&
-                controller.tasks.isEmpty)
+                controller.visibleTasks.isEmpty)
               const Center(
                 child: Padding(
                   padding: EdgeInsets.all(24),
@@ -389,7 +402,7 @@ class _TaskListPageState extends State<TaskListPage> {
               ),
             if (!controller.initializing &&
                 !controller.loading &&
-                controller.tasks.isEmpty)
+                controller.visibleTasks.isEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 24),
                 child: Center(
@@ -477,7 +490,7 @@ class _TaskListPageState extends State<TaskListPage> {
                   ),
                 ),
               ),
-            if (controller.focus == null && controller.tasks.isNotEmpty)
+            if (controller.focus == null)
               Padding(
                 padding: const EdgeInsets.only(top: 12),
                 child: Tooltip(
@@ -485,9 +498,15 @@ class _TaskListPageState extends State<TaskListPage> {
                   child: FilledButton.tonalIcon(
                     onPressed: () => _focus(context),
                     icon: const Icon(Icons.timer_outlined, size: 20),
-                    label: const Text('选择任务专注'),
+                    label: const Text('开始自由专注'),
                   ),
                 ),
+              ),
+            if (isRound)
+              TextButton(
+                onPressed: () =>
+                    _open(context, HistoryPage(controller: controller)),
+                child: const Text('专注时段'),
               ),
             if (controller.offline)
               Padding(
@@ -573,7 +592,7 @@ class TaskTile extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Material(
-        color: task.completed ? const Color(0xFF151518) : surface,
+        color: surface,
         shape: const StadiumBorder(),
         clipBehavior: Clip.antiAlias,
         child: Row(
@@ -595,7 +614,7 @@ class TaskTile extends StatelessWidget {
                             fontSize: 15,
                             fontWeight: FontWeight.w600,
                             height: 1.3,
-                            color: task.completed ? muted : Colors.white,
+                            color: task.completed ? muted : AppColors.text,
                           ),
                         ),
                         if (subtitle.isNotEmpty)
@@ -626,7 +645,7 @@ class TaskTile extends StatelessWidget {
                   task.completed
                       ? Icons.check_circle_rounded
                       : Icons.radio_button_unchecked_rounded,
-                  color: task.completed ? muted : accent,
+                  color: task.completed ? AppColors.completed : accent,
                   size: 24,
                 ),
               ),
@@ -888,7 +907,7 @@ class _FocusSetupPageState extends State<FocusSetupPage> {
     final before = rotaryTarget ?? (minutes ~/ 5 - 1);
     final index = (before + steps).clamp(0, 35);
     if (index == before) return;
-    TouchHaptics.rotaryScroll(steps * 40, source: wheel);
+    TouchHaptics.rotaryTick();
     rotaryTarget = index;
     final generation = ++rotaryGeneration;
     unawaited(
@@ -949,8 +968,8 @@ class _FocusSetupPageState extends State<FocusSetupPage> {
         ? TextButton.icon(
             key: const ValueKey('focus-task-selector'),
             style: TextButton.styleFrom(
-              foregroundColor: Colors.white,
-              minimumSize: const Size(48, 48),
+              foregroundColor: AppColors.text,
+              minimumSize: const Size(48, 32),
               padding: const EdgeInsets.symmetric(horizontal: 12),
             ),
             onPressed: () async {
@@ -988,7 +1007,7 @@ class _FocusSetupPageState extends State<FocusSetupPage> {
             child: Container(
               height: 40,
               decoration: BoxDecoration(
-                color: accent.withValues(alpha: .12),
+                color: AppColors.peach.withValues(alpha: .16),
                 borderRadius: BorderRadius.circular(20),
               ),
             ),
@@ -1003,7 +1022,7 @@ class _FocusSetupPageState extends State<FocusSetupPage> {
               onSelectedItemChanged: (index) {
                 if (minutes != (index + 1) * 5) {
                   if (rotaryTarget == null) {
-                    TouchHaptics.selectionClick();
+                    TouchHaptics.rotaryTick();
                   }
                 }
                 setState(() => minutes = (index + 1) * 5);
@@ -1012,10 +1031,13 @@ class _FocusSetupPageState extends State<FocusSetupPage> {
                 childCount: 36,
                 builder: (context, index) => Center(
                   child: Text(
-                    '${(index + 1) * 5} 分钟',
+                    '${(index + 1) * 5}',
                     style: const TextStyle(
-                      fontSize: 24,
-                      color: Colors.white,
+                      fontSize: 38,
+                      height: 1,
+                      leadingDistribution: TextLeadingDistribution.even,
+                      fontFeatures: [FontFeature.tabularFigures()],
+                      color: AppColors.text,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
@@ -1026,94 +1048,44 @@ class _FocusSetupPageState extends State<FocusSetupPage> {
         ],
       ),
     );
-    final button = WearEdgeButton(
-      label: '开始',
-      icon: Icons.play_arrow_rounded,
-      onPressed: start,
-      busy: busy,
-    );
-    final actionText = Text(
-      action ?? '',
-      key: const ValueKey('focus-start-action'),
-      textAlign: TextAlign.center,
-      style: const TextStyle(color: muted, fontSize: 12, height: 1.3),
-    );
-    if (MediaQuery.textScalerOf(context).scale(14) > 19) {
-      return AppPage(
-        isRound: widget.isRound,
-        enableRotary: false,
-        showTime: false,
-        bottomAction: button,
-        children: [
-          choose,
-          if (hasAction)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: actionText,
-            ),
-          SizedBox(height: 128, child: picker),
-        ],
-      );
-    }
     return Scaffold(
       body: ScreenViewport(
         isRound: widget.isRound,
         child: LayoutBuilder(
-          builder: (context, size) => Stack(
-            children: [
-              Positioned.fill(
-                child: Padding(
-                  padding: EdgeInsets.fromLTRB(
-                    widget.isRound ? size.maxWidth * .16 : 24,
-                    widget.isRound ? size.maxHeight * .13 : 24,
-                    widget.isRound ? size.maxWidth * .16 : 24,
-                    widget.isRound ? 60 : 24,
-                  ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      choose,
-                      if (hasAction)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4),
-                          child: readableAction(
-                            context,
-                            action!,
-                            Text(
-                              action,
-                              key: const ValueKey('focus-start-action'),
-                              maxLines:
-                                  MediaQuery.sizeOf(context).shortestSide < 220
-                                  ? 1
-                                  : 2,
-                              overflow: TextOverflow.ellipsis,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                color: muted,
-                                fontSize: 12,
-                                height: 1.25,
-                              ),
-                            ),
-                          ),
-                        ),
-                      const SizedBox(height: 4),
-                      Expanded(
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxHeight: 180),
-                          child: picker,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      if (!widget.isRound)
-                        SizedBox(width: double.infinity, child: button),
-                    ],
-                  ),
-                ),
+          builder: (context, box) {
+            return Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: box.maxWidth * .18,
+                vertical: box.maxHeight * .075,
               ),
-              if (widget.isRound)
-                Positioned(left: 0, right: 0, bottom: 0, child: button),
-            ],
-          ),
+              child: Column(
+                children: [
+                  SizedBox(height: 28, child: Center(child: choose)),
+                  if (hasAction)
+                    Text(
+                      action!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: muted, fontSize: 11),
+                    ),
+                  Expanded(child: picker),
+                  const Text(
+                    '分钟',
+                    style: TextStyle(color: muted, fontSize: 11),
+                  ),
+                  const SizedBox(height: 6),
+                  SizedBox(
+                    height: 40,
+                    child: FilledButton.icon(
+                      onPressed: busy ? null : start,
+                      icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                      label: const Text('开始专注'),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
         ),
       ),
     );
@@ -1132,7 +1104,21 @@ class TaskPickerPage extends StatelessWidget {
   Widget build(BuildContext context) => AppPage(
     isRound: isRound,
     children: [
-      backHeader(context, '选择任务'),
+      backHeader(context, '关联任务'),
+      TextButton(
+        onPressed: () => Navigator.pop(
+          context,
+          DailyTask(
+            id: '',
+            templateId: '',
+            date: controller.date,
+            title: '自由专注',
+            content: '',
+            space: controller.space,
+          ),
+        ),
+        child: const Text('不关联任务'),
+      ),
       const SizedBox(height: 8),
       for (final task in [...controller.pending, ...controller.completed])
         TaskTile(task: task, onTap: () => Navigator.pop(context, task)),
@@ -1173,6 +1159,7 @@ class FocusPage extends StatelessWidget {
             .where((task) => task.id == focus.taskId)
             .firstOrNull ??
         DailyTask(
+          space: focus.space,
           id: focus.taskId,
           templateId: '',
           date: '',
@@ -1268,7 +1255,7 @@ class FocusPage extends StatelessWidget {
             const SizedBox(height: 8),
             const Icon(
               Icons.check_circle_outline_rounded,
-              color: accent,
+              color: AppColors.completed,
               size: 32,
             ),
             const SizedBox(height: 8),
@@ -1320,7 +1307,7 @@ class FocusPage extends StatelessWidget {
         overflow: TextOverflow.ellipsis,
         textAlign: TextAlign.center,
         style: const TextStyle(
-          color: Colors.white,
+          color: AppColors.text,
           fontSize: 15,
           fontWeight: FontWeight.w600,
           height: 1.2,
@@ -1534,7 +1521,7 @@ class _TaskEditorPageState extends State<TaskEditorPage> {
       completionStandard,
       startAction,
       estimate;
-  late String date, recurrence;
+  late String date, recurrence, space;
   late final String templateId;
   final Set<int> weekdays = {};
   bool busy = false;
@@ -1542,6 +1529,7 @@ class _TaskEditorPageState extends State<TaskEditorPage> {
   void initState() {
     super.initState();
     final task = widget.task;
+    space = task?.space ?? widget.controller.space;
     templateId = task?.templateId ?? newId();
     title = TextEditingController(text: task?.title);
     content = TextEditingController(text: task?.content);
@@ -1583,6 +1571,7 @@ class _TaskEditorPageState extends State<TaskEditorPage> {
     try {
       await widget.controller.saveTask(
         TaskDraft(
+          space: space,
           id: templateId,
           title: title.text,
           content: content.text,
@@ -1612,6 +1601,14 @@ class _TaskEditorPageState extends State<TaskEditorPage> {
     isRound: false,
     children: [
       backHeader(context, widget.task == null ? '添加任务' : '编辑任务'),
+      DropdownButton<String>(
+        value: space,
+        items: const [
+          DropdownMenuItem(value: 'life', child: Text('生活')),
+          DropdownMenuItem(value: 'work', child: Text('工作')),
+        ],
+        onChanged: busy ? null : (value) => setState(() => space = value!),
+      ),
       Form(
         key: form,
         child: Column(
@@ -1774,7 +1771,7 @@ class _TaskEditorPageState extends State<TaskEditorPage> {
                     if (mounted) setState(() => busy = false);
                   }
                 },
-          child: const Text('停止安排', style: TextStyle(color: Colors.redAccent)),
+          child: const Text('停止安排', style: TextStyle(color: AppColors.primary)),
         ),
     ],
   );
@@ -1789,55 +1786,501 @@ class HistoryPage extends StatefulWidget {
 
 class _HistoryPageState extends State<HistoryPage> {
   late Future<List<Map<String, dynamic>>> history;
+  late String date;
+  late String space;
+  List<Map<String, dynamic>> rows = [];
+  int selected = 0;
   @override
   void initState() {
     super.initState();
-    history = widget.controller.repository.history();
+    date = widget.controller.date;
+    space = 'all';
+    history = widget.controller.history();
+  }
+
+  DateTime utc(dynamic value) => DateTime.parse(
+    value.toString().endsWith('Z') ? value.toString() : '${value}Z',
+  );
+  String time(dynamic value) {
+    final d = chinaNow(utc(value));
+    return '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
   }
 
   @override
-  Widget build(BuildContext context) => FutureBuilder(
+  Widget build(
+    BuildContext context,
+  ) => FutureBuilder<List<Map<String, dynamic>>>(
     future: history,
-    builder: (context, snapshot) => AppPage(
-      isRound: false,
-      children: [
-        backHeader(context, '专注记录'),
-        if (snapshot.connectionState != ConnectionState.done)
-          const Center(
-            child: SizedBox.square(
-              dimension: 20,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-          ),
-        if (snapshot.hasError)
-          Center(
-            child: TextButton(
-              onPressed: () => setState(
-                () => history = widget.controller.repository.history(),
+    builder: (context, snapshot) {
+      rows =
+          (snapshot.data ?? [])
+              .where(
+                (r) =>
+                    dayKey(chinaNow(utc(r['started_at']))) == date &&
+                    (space == 'all' || (r['space'] ?? 'life') == space),
+              )
+              .toList()
+            ..sort(
+              (a, b) => a['started_at'].toString().compareTo(
+                b['started_at'].toString(),
               ),
-              child: const Text('重新加载'),
+            );
+      selected = selected.clamp(0, math.max(0, rows.length - 1));
+      final total = rows
+          .where((r) => r['kind'] == 'focus')
+          .fold<int>(
+            0,
+            (sum, r) => sum + int.parse(r['actual_seconds'].toString()),
+          );
+      return Scaffold(
+        body: ScreenViewport(
+          isRound: ScreenShape.of(context),
+          child: LayoutBuilder(
+            builder: (context, box) => Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: box.maxWidth * .17,
+                vertical: box.maxHeight * .07,
+              ),
+              child: Column(
+                children: [
+                  SizedBox(
+                    height: 28,
+                    child: TextButton(
+                      onLongPress: () async {
+                        final value = await appDialog<String>(
+                          context,
+                          title: '查看空间',
+                          actions: (dialog) => [
+                            for (final entry in {
+                              'life': '生活',
+                              'work': '工作',
+                              'all': '全部',
+                            }.entries)
+                              TextButton(
+                                onPressed: () =>
+                                    Navigator.pop(dialog, entry.key),
+                                child: Text(entry.value),
+                              ),
+                          ],
+                        );
+                        if (value != null && mounted) {
+                          setState(() => space = value);
+                        }
+                      },
+                      style: TextButton.styleFrom(padding: EdgeInsets.zero),
+                      onPressed: () async {
+                        await Navigator.push(
+                          context,
+                          appRoute(
+                            context,
+                            builder: (_) => TaskDatePage(
+                              controller: widget.controller,
+                              isRound: ScreenShape.of(context),
+                            ),
+                          ),
+                        );
+                        if (mounted) {
+                          setState(() {
+                            date = widget.controller.date;
+                            selected = 0;
+                          });
+                        }
+                      },
+                      child: Text(
+                        '${date.substring(5)} · ${space == 'all'
+                            ? '全部'
+                            : space == 'work'
+                            ? '工作'
+                            : '生活'}',
+                        style: const TextStyle(color: muted, fontSize: 12),
+                      ),
+                    ),
+                  ),
+                  Text(
+                    '${total ~/ 60} 分钟',
+                    style: const TextStyle(
+                      fontSize: 22,
+                      color: AppColors.analysis,
+                      fontFeatures: [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                  Text(
+                    '${rows.where((r) => r['kind'] == 'focus').length} 次专注',
+                    style: const TextStyle(fontSize: 10, color: muted),
+                  ),
+                  Expanded(
+                    child: snapshot.hasError
+                        ? TextButton(
+                            onPressed: () => setState(
+                              () => history = widget.controller.history(),
+                            ),
+                            child: const Text('重新加载'),
+                          )
+                        : snapshot.connectionState != ConnectionState.done
+                        ? const Center(child: CircularProgressIndicator())
+                        : rows.isEmpty
+                        ? const Center(
+                            child: Text(
+                              '今天还没有专注',
+                              style: TextStyle(color: muted, fontSize: 12),
+                            ),
+                          )
+                        : SegmentedDayTimeline(
+                            selected: selected,
+                            key: ValueKey('$date-$space'),
+                            rows: rows,
+                            onSelected: (index) =>
+                                setState(() => selected = index),
+                          ),
+                  ),
+                  if (rows.isNotEmpty)
+                    SizedBox(
+                      height: 36,
+                      child: Column(
+                        children: [
+                          Text(
+                            '${rows[selected]['kind'] == 'rest'
+                                ? '休息'
+                                : rows[selected]['space'] == 'work'
+                                ? '工作'
+                                : '生活'} · ${rows[selected]['task_title']}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          Text(
+                            '${time(rows[selected]['started_at'])}–${time(rows[selected]['ended_at'])} · 实际 ${int.parse(rows[selected]['actual_seconds'].toString()) ~/ 60} 分钟',
+                            style: const TextStyle(fontSize: 10, color: muted),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
-        if (snapshot.hasData && snapshot.data!.isEmpty)
-          const Center(
-            child: Text('还没有专注记录', style: TextStyle(color: muted)),
-          ),
-        for (final row in snapshot.data ?? <Map<String, dynamic>>[])
-          ListTile(
-            title: Text(row['task_title'].toString()),
-            subtitle: Text(
-              '${row['kind'] == 'rest' ? '休息' : '专注'} · ${row['status'] == 'completed' ? '完成' : '提前结束'} · ${_historyTime(row['started_at'].toString())}',
+        ),
+      );
+    },
+  );
+}
+
+class WorkModePage extends StatefulWidget {
+  const WorkModePage({super.key});
+  @override
+  State<WorkModePage> createState() => _WorkModePageState();
+}
+
+class _WorkModePageState extends State<WorkModePage>
+    with WidgetsBindingObserver {
+  static const channel = MethodChannel('life_assistant/work');
+  Map<String, dynamic> state = {};
+  String? error;
+  bool busy = false;
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    call('get');
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState value) {
+    if (value == AppLifecycleState.resumed) call('get');
+  }
+
+  Future<void> call(String method, [Map<String, dynamic>? args]) async {
+    if (busy) return;
+    setState(() {
+      busy = true;
+      error = null;
+    });
+    try {
+      if (method == 'start') await channel.invokeMethod('permissions');
+      final result = await channel.invokeMapMethod<String, dynamic>(
+        method,
+        args,
+      );
+      if (mounted) setState(() => state = result ?? {});
+    } on PlatformException catch (e) {
+      if (mounted) setState(() => error = e.message);
+    } on MissingPluginException {
+      if (mounted) setState(() => error = '请在 Android 设备上使用工作模式');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AppPage(
+    isRound: ScreenShape.of(context),
+    children: [
+      backHeader(context, '工作模式'),
+      Center(
+        child: Text(
+          state['active'] == true ? '工作中' : '尚未开始工作',
+          style: const TextStyle(color: AppColors.work),
+        ),
+      ),
+      const SizedBox(height: 8),
+      FilledButton(
+        onPressed: busy
+            ? null
+            : () => call(state['active'] == true ? 'stop' : 'start'),
+        child: Text(state['active'] == true ? '结束工作' : '开始工作'),
+      ),
+      if (state['active'] == true && state['started'] != null)
+        Text(
+          '已工作 ${DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(state['started'] as int)).inMinutes} 分钟',
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: muted, fontSize: 12),
+        ),
+      for (final entry in {'water': '喝水', 'eyes': '远眺休息'}.entries)
+        Column(
+          children: [
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: Text(entry.value, style: const TextStyle(fontSize: 14)),
+              value:
+                  (state[entry.key] as int? ??
+                      (entry.key == 'water' ? 60 : 30)) >
+                  0,
+              onChanged: busy
+                  ? null
+                  : (enabled) => call('configure', {
+                      'water': state['water'] ?? 60,
+                      'eyes': state['eyes'] ?? 30,
+                      entry.key: enabled ? (entry.key == 'water' ? 60 : 30) : 0,
+                    }),
             ),
-            trailing: Text(
-              '${(int.parse(row['actual_seconds'].toString()) / 60).floor()} 分钟',
-            ),
+            if ((state[entry.key] as int? ?? 30) > 0)
+              TextButton(
+                onPressed: busy
+                    ? null
+                    : () async {
+                        final value = await Navigator.push<int>(
+                          context,
+                          appRoute(
+                            context,
+                            builder: (_) => IntervalPage(
+                              title: entry.value,
+                              initial: state[entry.key] as int? ?? 30,
+                            ),
+                          ),
+                        );
+                        if (value != null && mounted) {
+                          call('configure', {
+                            'water': state['water'] ?? 60,
+                            'eyes': state['eyes'] ?? 30,
+                            entry.key: value,
+                          });
+                        }
+                      },
+                child: Text(
+                  '每 ${state[entry.key] ?? 30} 分钟  ›',
+                  style: TextStyle(
+                    color: entry.key == 'water'
+                        ? AppColors.water
+                        : AppColors.reminder,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      const Divider(),
+      for (final entry in {
+        'lunchStart': '午休开始',
+        'lunchEnd': '午休结束',
+        'endMinute': '自动结束时间',
+      }.entries)
+        TextButton(
+          onPressed: busy
+              ? null
+              : () async {
+                  final initial =
+                      state[entry.key] as int? ??
+                      (entry.key == 'lunchStart'
+                          ? 720
+                          : entry.key == 'lunchEnd'
+                          ? 840
+                          : 1320);
+                  final value = await Navigator.push<int>(
+                    context,
+                    appRoute(
+                      context,
+                      builder: (_) => IntervalPage(
+                        title: entry.value,
+                        initial: initial,
+                        timeOfDay: true,
+                      ),
+                    ),
+                  );
+                  if (value != null && mounted) {
+                    call('rules', {
+                      'lunchStart': state['lunchStart'] ?? 720,
+                      'lunchEnd': state['lunchEnd'] ?? 840,
+                      'autoEnd': state['autoEnd'] ?? true,
+                      'endMinute': state['endMinute'] ?? 1320,
+                      entry.key: value,
+                    });
+                  }
+                },
+          child: Text(
+            '${entry.value}  ${((state[entry.key] as int? ?? (entry.key == 'lunchStart'
+                        ? 720
+                        : entry.key == 'lunchEnd'
+                        ? 840
+                        : 1320)) ~/ 60).toString().padLeft(2, '0')}:${((state[entry.key] as int? ?? 0) % 60).toString().padLeft(2, '0')}',
           ),
-      ],
+        ),
+      SwitchListTile.adaptive(
+        contentPadding: EdgeInsets.zero,
+        title: const Text('自动结束工作', style: TextStyle(fontSize: 13)),
+        value: state['autoEnd'] != false,
+        onChanged: busy
+            ? null
+            : (v) => call('rules', {
+                'lunchStart': state['lunchStart'] ?? 720,
+                'lunchEnd': state['lunchEnd'] ?? 840,
+                'endMinute': state['endMinute'] ?? 1320,
+                'autoEnd': v,
+              }),
+      ),
+      if (error != null)
+        Text(
+          error!,
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: AppColors.work),
+        ),
+    ],
+  );
+}
+
+class IntervalPage extends StatefulWidget {
+  const IntervalPage({
+    super.key,
+    required this.title,
+    required this.initial,
+    this.timeOfDay = false,
+  });
+  final String title;
+  final int initial;
+  final bool timeOfDay;
+  @override
+  State<IntervalPage> createState() => _IntervalPageState();
+}
+
+class _IntervalPageState extends State<IntervalPage> {
+  late int value;
+  @override
+  void initState() {
+    super.initState();
+    value = widget.initial;
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: ScreenViewport(
+      isRound: ScreenShape.of(context),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 36, vertical: 24),
+        child: Column(
+          children: [
+            Text(
+              widget.title,
+              style: const TextStyle(color: muted, fontSize: 12),
+            ),
+            Expanded(
+              child: MinutePicker(
+                initial: value,
+                timeOfDay: widget.timeOfDay,
+                onChanged: (m) => value = m,
+              ),
+            ),
+            Text(
+              widget.timeOfDay ? '时间' : '分钟',
+              style: const TextStyle(color: muted, fontSize: 11),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, value),
+              child: const Text('确定'),
+            ),
+          ],
+        ),
+      ),
     ),
   );
 }
 
-String _historyTime(String raw) {
-  final time = chinaNow(DateTime.parse('${raw}Z'));
-  return '${dayKey(time)} ${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+class WorkSummary extends StatefulWidget {
+  const WorkSummary({super.key});
+  @override
+  State<WorkSummary> createState() => _WorkSummaryState();
+}
+
+class _WorkSummaryState extends State<WorkSummary> {
+  static const channel = MethodChannel('life_assistant/work');
+  bool active = false, busy = false;
+  @override
+  void initState() {
+    super.initState();
+    read();
+  }
+
+  Future<void> read() async {
+    try {
+      final value = await channel.invokeMapMethod<String, dynamic>('get');
+      if (mounted) setState(() => active = value?['active'] == true);
+    } on PlatformException {
+      /* State can be re-read when opening settings. */
+    } on MissingPluginException {
+      /* Desktop preview. */
+    }
+  }
+
+  Future<void> toggle() async {
+    setState(() => busy = true);
+    try {
+      if (!active) await channel.invokeMethod('permissions');
+      await channel.invokeMethod(active ? 'stop' : 'start');
+      await read();
+    } on PlatformException catch (e) {
+      if (mounted) showNotice(context, e.message ?? '暂时无法切换工作状态');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisAlignment: MainAxisAlignment.center,
+    children: [
+      Flexible(
+        child: TextButton(
+          onPressed: busy ? null : toggle,
+          child: Text(
+            active ? '结束工作' : '开始工作',
+            style: const TextStyle(fontSize: 12, color: AppColors.work),
+          ),
+        ),
+      ),
+      IconButton(
+        tooltip: '工作提醒设置',
+        icon: const Icon(Icons.tune_rounded, size: 18, color: AppColors.work),
+        onPressed: () async {
+          await Navigator.push(
+            context,
+            appRoute(context, builder: (_) => const WorkModePage()),
+          );
+          if (mounted) read();
+        },
+      ),
+    ],
+  );
 }

@@ -80,9 +80,9 @@ class MySqlTaskRepository implements TaskRepository {
     await connection.execute(
       '''INSERT IGNORE INTO la_task_days
       (id, template_id, task_date, title, content, tutorial,
-       task_value, minimum_goal, completion_standard, start_action, estimated_minutes, sort_order)
+       task_value, minimum_goal, completion_standard, start_action, estimated_minutes, sort_order, space)
       SELECT CONCAT(id, ':', :date), id, :date, title, content, tutorial,
-        task_value, minimum_goal, completion_standard, start_action, estimated_minutes, sort_order
+        task_value, minimum_goal, completion_standard, start_action, estimated_minutes, sort_order, space
       FROM la_task_templates WHERE active = TRUE AND start_date <= :date
       AND ((recurrence = 'once' AND start_date = :date) OR recurrence = 'daily'
         OR (recurrence = 'weekly' AND FIND_IN_SET(:weekday, weekdays) > 0))''',
@@ -119,10 +119,10 @@ class MySqlTaskRepository implements TaskRepository {
           await transaction.execute(
             '''INSERT INTO la_task_days
           (id, template_id, task_date, carried_from_date, title, content, tutorial,
-           task_value, minimum_goal, completion_standard, start_action, estimated_minutes, sort_order)
+           task_value, minimum_goal, completion_standard, start_action, estimated_minutes, sort_order, space)
         SELECT CONCAT(template_id, ':', :today), template_id, :today, task_date,
           title, content, tutorial, task_value, minimum_goal, completion_standard,
-          start_action, estimated_minutes, sort_order
+          start_action, estimated_minutes, sort_order, space
         FROM la_task_days AS source_task WHERE id = :id
         ON DUPLICATE KEY UPDATE carried_from_date = IF(la_task_days.completed_at IS NULL,
           COALESCE(la_task_days.carried_from_date, VALUES(carried_from_date)), la_task_days.carried_from_date)''',
@@ -150,15 +150,16 @@ class MySqlTaskRepository implements TaskRepository {
           await transaction.execute(
             '''INSERT INTO la_task_templates
         (id, title, content, tutorial, task_value, minimum_goal, completion_standard,
-         start_action, estimated_minutes, recurrence, start_date, weekdays, sort_order)
+         start_action, estimated_minutes, recurrence, start_date, weekdays, sort_order, space)
         VALUES (:id, :title, :content, :tutorial, :value, :goal, :standard,
-          :action, :estimate, :recurrence, :date, :weekdays, :sort)
+          :action, :estimate, :recurrence, :date, :weekdays, :sort, :space)
         ON DUPLICATE KEY UPDATE title = VALUES(title), content = VALUES(content),
           tutorial = VALUES(tutorial), task_value = VALUES(task_value),
           minimum_goal = VALUES(minimum_goal), completion_standard = VALUES(completion_standard),
           start_action = VALUES(start_action), estimated_minutes = VALUES(estimated_minutes), recurrence = VALUES(recurrence),
-          start_date = VALUES(start_date), weekdays = VALUES(weekdays), sort_order = VALUES(sort_order)''',
+          start_date = VALUES(start_date), weekdays = VALUES(weekdays), sort_order = VALUES(sort_order), space = VALUES(space)''',
             {
+              'space': draft.space,
               'id': id,
               'title': draft.title.trim(),
               'content': draft.content.trim(),
@@ -181,9 +182,10 @@ class MySqlTaskRepository implements TaskRepository {
             '''UPDATE la_task_days SET title = :title,
         content = :content, tutorial = :tutorial, sort_order = :sort,
         task_value = :value, minimum_goal = :goal, completion_standard = :standard,
-        start_action = :action, estimated_minutes = :estimate
+        start_action = :action, estimated_minutes = :estimate, space = :space
         WHERE template_id = :id AND task_date >= :today AND completed_at IS NULL''',
             {
+              'space': draft.space,
               'id': id,
               'title': draft.title.trim(),
               'content': draft.content.trim(),
@@ -213,11 +215,13 @@ class MySqlTaskRepository implements TaskRepository {
       _connection((connection) async {
         await connection.execute(
           '''INSERT INTO la_focus_sessions
-      (id, task_day_id, task_title, kind, planned_seconds, actual_seconds, status, started_at, ended_at)
-      VALUES (:id, :taskId, :taskTitle, :kind, :plannedSeconds, :actualSeconds, :status, :started, :ended)
+      (id, task_day_id, task_title, kind, planned_seconds, actual_seconds, status, started_at, ended_at, space)
+      VALUES (:id, :taskId, :taskTitle, :kind, :plannedSeconds, :actualSeconds, :status, :started, :ended, :space)
       ON DUPLICATE KEY UPDATE actual_seconds = VALUES(actual_seconds), status = VALUES(status), ended_at = VALUES(ended_at)''',
           {
             ...session,
+            'taskId': session['taskId'] == '' ? null : session['taskId'],
+            'space': session['space'] ?? 'life',
             'started': sqlTime(
               DateTime.fromMillisecondsSinceEpoch(session['startedAt'] as int),
             ),
@@ -233,9 +237,9 @@ class MySqlTaskRepository implements TaskRepository {
     connection,
   ) async {
     final result = await connection.execute(
-      '''SELECT task_title, kind, planned_seconds,
+      '''SELECT id, space, task_title, kind, planned_seconds,
       actual_seconds, status, started_at, ended_at FROM la_focus_sessions
-      ORDER BY started_at DESC LIMIT 100''',
+      ORDER BY started_at DESC''',
     );
     return result.rows.map((row) => <String, dynamic>{...row.assoc()}).toList();
   });

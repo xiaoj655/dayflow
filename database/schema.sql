@@ -1,6 +1,7 @@
--- Dayflow v3. All DATETIME values are UTC; task_date is Asia/Shanghai.
+-- Dayflow v4. All DATETIME values are UTC; task_date is Asia/Shanghai.
 CREATE TABLE IF NOT EXISTS la_task_templates (
   id CHAR(36) PRIMARY KEY,
+  space ENUM('life','work') NOT NULL DEFAULT 'life',
   title VARCHAR(200) NOT NULL,
   content TEXT NOT NULL,
   tutorial LONGTEXT NULL,
@@ -24,6 +25,7 @@ CREATE TABLE IF NOT EXISTS la_task_days (
   template_id CHAR(36) NOT NULL,
   task_date DATE NOT NULL,
   carried_from_date DATE NULL,
+  space ENUM('life','work') NOT NULL DEFAULT 'life',
   title VARCHAR(200) NOT NULL,
   content TEXT NOT NULL,
   tutorial LONGTEXT NULL,
@@ -43,6 +45,7 @@ CREATE TABLE IF NOT EXISTS la_task_days (
 CREATE TABLE IF NOT EXISTS la_focus_sessions (
   id CHAR(36) PRIMARY KEY,
   task_day_id VARCHAR(47) NULL,
+  space ENUM('life','work') NOT NULL DEFAULT 'life',
   task_title VARCHAR(200) NOT NULL,
   kind ENUM('focus','rest') NOT NULL,
   planned_seconds INT UNSIGNED NOT NULL,

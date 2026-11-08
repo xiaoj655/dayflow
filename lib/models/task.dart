@@ -31,6 +31,7 @@ class DailyTask {
     this.estimatedMinutes,
     this.completedAt,
     this.carriedFromDate,
+    this.space = 'life',
     this.sortOrder = 0,
     this.recurrence = 'once',
     this.weekdays = const [],
@@ -41,6 +42,7 @@ class DailyTask {
   final String? taskValue, minimumGoal, completionStandard, startAction;
   final int? estimatedMinutes;
   final List<int> weekdays;
+  final String space;
   final int sortOrder;
   bool get completed => completedAt != null;
   DailyTask withCompletion(String? value) => DailyTask(
@@ -57,6 +59,7 @@ class DailyTask {
     estimatedMinutes: estimatedMinutes,
     completedAt: value,
     carriedFromDate: carriedFromDate,
+    space: space,
     sortOrder: sortOrder,
     recurrence: recurrence,
     weekdays: weekdays,
@@ -76,6 +79,7 @@ class DailyTask {
     'estimated_minutes': estimatedMinutes,
     'completed_at': completedAt,
     'carried_from_date': carriedFromDate,
+    'space': space,
     'sort_order': sortOrder,
     'recurrence': recurrence,
     'weekdays': weekdays.join(','),
@@ -95,6 +99,7 @@ class DailyTask {
     estimatedMinutes: int.tryParse('${data['estimated_minutes'] ?? ''}'),
     completedAt: data['completed_at'] as String?,
     carriedFromDate: data['carried_from_date']?.toString().substring(0, 10),
+    space: data['space'] as String? ?? 'life',
     sortOrder: int.parse('${data['sort_order'] ?? 0}'),
     recurrence: data['recurrence'] as String? ?? 'once',
     weekdays: (data['weekdays']?.toString() ?? '')
@@ -120,6 +125,7 @@ class TaskDraft {
     this.estimatedMinutes,
     this.recurrence = 'once',
     this.weekdays = const [],
+    this.space = 'life',
     this.sortOrder = 0,
   });
   final String title, content, date, recurrence;
@@ -128,8 +134,10 @@ class TaskDraft {
   final String? taskValue, minimumGoal, completionStandard, startAction;
   final int? estimatedMinutes;
   final List<int> weekdays;
+  final String space;
   final int sortOrder;
   void validate() {
+    if (!['life', 'work'].contains(space)) throw const FormatException('空间无效');
     if (estimatedMinutes != null &&
         (estimatedMinutes! < 1 || estimatedMinutes! > 1440)) {
       throw const FormatException('预估时长须为 1–1440 分钟');

@@ -4,6 +4,7 @@ class FocusSession {
     required this.taskId,
     required this.taskTitle,
     this.startAction,
+    this.space = 'life',
     required this.kind,
     required this.status,
     required this.plannedSeconds,
@@ -12,6 +13,7 @@ class FocusSession {
   });
   final String id, taskId, taskTitle, kind, status;
   final String? startAction;
+  final String space;
   final int plannedSeconds, remainingMillis, startedAt;
   bool get running => status == 'running';
   bool get paused => status == 'paused';
@@ -19,6 +21,7 @@ class FocusSession {
   bool get active => running || paused;
   int get remainingSeconds => (remainingMillis / 1000).ceil();
   factory FocusSession.fromJson(Map<String, dynamic> json) => FocusSession(
+    space: json['space'] as String? ?? 'life',
     id: json['id'] as String,
     taskId: json['taskId'] as String,
     taskTitle: json['taskTitle'] as String,

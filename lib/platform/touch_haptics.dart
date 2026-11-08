@@ -6,6 +6,8 @@ class TouchHaptics {
   static const channel = MethodChannel('life_assistant/haptics');
   static final _rotaryCadences = Expando<RotaryHapticCadence>();
 
+  static Future<void> rotaryTick() => _play('rotary');
+
   static Future<void> selectionClick() => _play('selection');
 
   /// Use the watch's native rotary feedback, independently of click feedback.

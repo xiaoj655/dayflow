@@ -1,5 +1,7 @@
 package com.example.life_assistant
 
+import androidx.core.app.NotificationCompat
+import androidx.wear.ongoing.OngoingActivity
 import android.Manifest
 import android.app.AlarmManager
 import android.app.Notification
@@ -67,15 +69,19 @@ class FocusTimer(private val context: Context) {
         val open = PendingIntent.getActivity(context, 72,
             Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(context, if (finished) "focus_finished" else "focus_progress") else Notification.Builder(context)
+        val builder = NotificationCompat.Builder(context, if (finished) "focus_finished" else "focus_progress")
         val rest = value.getString("kind") == "rest"
         builder.setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setContentTitle(if (finished) { if (rest) "休息结束" else "本次专注完成" } else value.getString("taskTitle"))
             .setContentText(if (finished) value.getString("taskTitle") else if (rest) "休息中" else if (value.getString("status") == "paused") "已暂停" else "专注中")
             .setContentIntent(open).setOngoing(!finished).setAutoCancel(finished)
+            .setTimeoutAfter(if (finished) 5000L else 0L)
             .setOnlyAlertOnce(true).setCategory(if (finished) Notification.CATEGORY_ALARM else Notification.CATEGORY_PROGRESS)
         if (!finished && value.getString("status") == "running") {
             builder.setWhen(System.currentTimeMillis() + remaining(value)).setUsesChronometer(true).setChronometerCountDown(true)
+        }
+        if (!finished && value.getString("status") == "running") {
+            OngoingActivity.Builder(context, 73, builder).setStaticIcon(android.R.drawable.ic_lock_idle_alarm).setTouchIntent(open).build().apply(context)
         }
         notifications.notify(73, builder.build())
     }
@@ -85,7 +91,7 @@ class FocusTimer(private val context: Context) {
         val planned = value.getInt("plannedSeconds")
         val actual = if (status == "completed") planned else ((planned * 1000L - remaining(value)) / 1000).toInt().coerceIn(0, planned)
         existing.put(JSONObject().put("id", value.getString("id"))
-            .put("taskId", value.getString("taskId")).put("taskTitle", value.getString("taskTitle"))
+            .put("space", value.optString("space", "life")).put("taskId", value.getString("taskId")).put("taskTitle", value.getString("taskTitle"))
             .put("kind", value.getString("kind")).put("plannedSeconds", planned)
             .put("actualSeconds", actual).put("status", status)
             .put("startedAt", value.getLong("startedAt")).put("endedAt", System.currentTimeMillis()))
@@ -142,7 +148,7 @@ class FocusTimer(private val context: Context) {
                 require(kind == "focus" || kind == "rest")
                 val now = System.currentTimeMillis()
                 val value = JSONObject().put("id", args["id"]).put("taskId", args["taskId"])
-                    .put("taskTitle", args["taskTitle"]).put("startAction", args["startAction"] ?: JSONObject.NULL).put("kind", kind).put("status", "running")
+                    .put("space", args["space"] ?: "life").put("taskTitle", args["taskTitle"]).put("startAction", args["startAction"] ?: JSONObject.NULL).put("kind", kind).put("status", "running")
                     .put("plannedSeconds", minutes * 60).put("remainingMillis", minutes * 60000L)
                     .put("startedAt", now).put("deadlineWall", now + minutes * 60000L)
                     .put("deadlineElapsed", SystemClock.elapsedRealtime() + minutes * 60000L).put("boot", boot)

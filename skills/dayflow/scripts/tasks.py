@@ -30,6 +30,12 @@ def migrate_task_details(cursor):
     if 'carried_from_date' not in existing:
         cursor.execute('ALTER TABLE la_task_days ADD COLUMN carried_from_date DATE NULL')
         added.append('la_task_days.carried_from_date')
+    for table in ('la_task_templates', 'la_task_days', 'la_focus_sessions'):
+        cursor.execute('SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=%s', (table,))
+        columns = {row['COLUMN_NAME'] for row in cursor.fetchall()}
+        if 'space' not in columns:
+            cursor.execute(f"ALTER TABLE {table} ADD COLUMN space ENUM('life','work') NOT NULL DEFAULT 'life'")
+            added.append(f'{table}.space')
     return added
 
 
@@ -62,9 +68,9 @@ def materialize(cursor, day):
     weekday = date.fromisoformat(day).isoweekday()
     cursor.execute('''INSERT IGNORE INTO la_task_days
         (id, template_id, task_date, title, content, tutorial,
-         task_value, minimum_goal, completion_standard, start_action, estimated_minutes, sort_order)
+         task_value, minimum_goal, completion_standard, start_action, estimated_minutes, sort_order, space)
         SELECT CONCAT(id, ':', %s), id, %s, title, content, tutorial,
-        task_value, minimum_goal, completion_standard, start_action, estimated_minutes, sort_order
+        task_value, minimum_goal, completion_standard, start_action, estimated_minutes, sort_order, space
         FROM la_task_templates WHERE active = TRUE AND start_date <= %s
         AND ((recurrence = 'once' AND start_date = %s) OR recurrence = 'daily'
           OR (recurrence = 'weekly' AND FIND_IN_SET(%s, weekdays) > 0))''',
@@ -113,22 +119,24 @@ def put_task(cursor, payload, task_id=None):
         raise ValueError('estimated_minutes must be an integer between 1 and 1440, or null')
     details.append(estimate)
     task_id = task_id or str(uuid.uuid4())
+    space = payload.get('space', 'life')
+    if space not in ('life', 'work'): raise ValueError('space must be life or work')
     order = int(payload.get('sort_order', 0))
     cursor.execute('''INSERT INTO la_task_templates
         (id, title, content, tutorial, task_value, minimum_goal, completion_standard,
-         start_action, estimated_minutes, recurrence, start_date, weekdays, sort_order)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON DUPLICATE KEY UPDATE
+         start_action, estimated_minutes, recurrence, start_date, weekdays, sort_order, space)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON DUPLICATE KEY UPDATE
         title=VALUES(title), content=VALUES(content), tutorial=VALUES(tutorial),
         task_value=VALUES(task_value), minimum_goal=VALUES(minimum_goal),
         completion_standard=VALUES(completion_standard), start_action=VALUES(start_action),
         estimated_minutes=VALUES(estimated_minutes), recurrence=VALUES(recurrence),
         start_date=VALUES(start_date), weekdays=VALUES(weekdays),
-        sort_order=VALUES(sort_order)''',
-        (task_id, title, content, tutorial, *details, repeat, day, ','.join(map(str, weekdays)), order))
+        sort_order=VALUES(sort_order), space=VALUES(space)''',
+        (task_id, title, content, tutorial, *details, repeat, day, ','.join(map(str, weekdays)), order, space))
     cursor.execute('''UPDATE la_task_days SET title=%s, content=%s, tutorial=%s, sort_order=%s,
-        task_value=%s, minimum_goal=%s, completion_standard=%s, start_action=%s, estimated_minutes=%s
+        task_value=%s, minimum_goal=%s, completion_standard=%s, start_action=%s, estimated_minutes=%s, space=%s
         WHERE template_id=%s AND task_date >= %s AND completed_at IS NULL''',
-        (title, content, tutorial, order, *details, task_id, today()))
+        (title, content, tutorial, order, *details, space, task_id, today()))
     return {'template_id': task_id, 'title': title, 'date': day, 'recurrence': repeat}
 
 
@@ -140,10 +148,10 @@ def carry_to_today(cursor, task_id):
         raise ValueError('Only unfinished tasks from another date can be added to today')
     cursor.execute('''INSERT INTO la_task_days
         (id, template_id, task_date, carried_from_date, title, content, tutorial,
-         task_value, minimum_goal, completion_standard, start_action, estimated_minutes, sort_order)
+         task_value, minimum_goal, completion_standard, start_action, estimated_minutes, sort_order, space)
         SELECT CONCAT(template_id, ':', %s), template_id, %s, task_date,
           title, content, tutorial, task_value, minimum_goal, completion_standard,
-          start_action, estimated_minutes, sort_order
+          start_action, estimated_minutes, sort_order, space
         FROM la_task_days AS source_task WHERE id=%s
         ON DUPLICATE KEY UPDATE carried_from_date=IF(la_task_days.completed_at IS NULL,
           COALESCE(la_task_days.carried_from_date, VALUES(carried_from_date)), la_task_days.carried_from_date)''', (day, day, task_id))
@@ -154,7 +162,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='command', required=True)
     commands.add_parser('init')
-    listing = commands.add_parser('list'); listing.add_argument('--date', default=today())
+    listing = commands.add_parser('list'); listing.add_argument('--date', default=today()); listing.add_argument('--space', choices=['life','work'])
     put = commands.add_parser('put'); put.add_argument('--input', type=Path, required=True); put.add_argument('--id')
     complete = commands.add_parser('complete'); complete.add_argument('--id', required=True); complete.add_argument('--undo', action='store_true')
     carry = commands.add_parser('carry'); carry.add_argument('--id', required=True)
@@ -170,7 +178,7 @@ def main():
                     if statement.strip(): cursor.execute(statement)
                 added = migrate_task_details(cursor)
                 output = {'schema': 'ready', 'added_columns': added}
-            elif args.command == 'list': output = list_tasks(cursor, args.date)
+            elif args.command == 'list': output = [row for row in list_tasks(cursor, args.date) if args.space is None or row['space'] == args.space]
             elif args.command == 'put': output = put_task(cursor, json.loads(args.input.read_text()), args.id)
             elif args.command == 'carry': output = carry_to_today(cursor, args.id)
             elif args.command == 'complete':
