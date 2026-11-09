@@ -18,7 +18,7 @@ class WorkMode(private val context: Context, private val clock: () -> Long = Sys
     private fun end(): Long = prefs.getLong("end", 0)
     fun snapshot(): Map<String, Any> {
         if (end() != 0L && clock() >= end()) stop()
-        return mapOf("active" to (end() > clock()), "water" to prefs.getInt("water", 60), "eyes" to prefs.getInt("eyes", 30), "started" to prefs.getLong("started",0), "lunchStart" to prefs.getInt("lunchStart",720), "lunchEnd" to prefs.getInt("lunchEnd",840), "autoEnd" to prefs.getBoolean("autoEnd",true), "endMinute" to prefs.getInt("endMinute",1320))
+        return mapOf("active" to (end() > clock()), "water" to prefs.getInt("water", 60), "eyes" to prefs.getInt("eyes", 30), "started" to prefs.getLong("started",0), "lunchStart" to prefs.getInt("lunchStart",720), "lunchEnd" to prefs.getInt("lunchEnd",840), "dinnerStart" to prefs.getInt("dinnerStart",1080), "dinnerEnd" to prefs.getInt("dinnerEnd",1140), "autoEnd" to prefs.getBoolean("autoEnd",true), "endMinute" to prefs.getInt("endMinute",1320))
     }
     fun stop() {
         context.getSystemService(NotificationManager::class.java).cancel(82)
@@ -40,8 +40,11 @@ class WorkMode(private val context: Context, private val clock: () -> Long = Sys
             "stop" -> stop()
             "rules" -> {
                 val start=(args["lunchStart"] as Number).toInt(); val finish=(args["lunchEnd"] as Number).toInt();val endMinute=(args["endMinute"] as Number).toInt()
+                val dinnerStart=(args["dinnerStart"] as? Number)?.toInt() ?: prefs.getInt("dinnerStart",1080)
+                val dinnerEnd=(args["dinnerEnd"] as? Number)?.toInt() ?: prefs.getInt("dinnerEnd",1140)
+                require(dinnerStart in 0..1435 && dinnerEnd in 0..1435 && dinnerStart<dinnerEnd)
                 require(start in 0..1435 && finish in 0..1435 && start<finish && endMinute in 0..1435)
-                check(prefs.edit().putInt("lunchStart",start).putInt("lunchEnd",finish).putBoolean("autoEnd",args["autoEnd"]==true).putInt("endMinute",endMinute).commit())
+                check(prefs.edit().putInt("dinnerStart",dinnerStart).putInt("dinnerEnd",dinnerEnd).putInt("lunchStart",start).putInt("lunchEnd",finish).putBoolean("autoEnd",args["autoEnd"]==true).putInt("endMinute",endMinute).commit())
                 if(end()>0){ val c=now();c.set(Calendar.HOUR_OF_DAY,endMinute/60);c.set(Calendar.MINUTE,endMinute%60);c.set(Calendar.SECOND,0);check(prefs.edit().putLong("end",if(args["autoEnd"]==true)c.timeInMillis else Long.MAX_VALUE).commit()) }
             }
             "configure" -> {
@@ -54,8 +57,12 @@ class WorkMode(private val context: Context, private val clock: () -> Long = Sys
         schedule()
         return snapshot()
     }
-    private fun resetDue() {
-        val base = clock()
+    private fun quietEnd(minute: Int): Int? = listOf(
+        prefs.getInt("lunchStart",720) to prefs.getInt("lunchEnd",840),
+        prefs.getInt("dinnerStart",1080) to prefs.getInt("dinnerEnd",1140)
+    ).filter { minute >= it.first && minute < it.second }.maxOfOrNull { it.second }
+
+    private fun resetDue(base: Long = clock()) {
         check(prefs.edit().putLong("waterDue", base + prefs.getInt("water",60)*60000L).putLong("eyesDue", base + prefs.getInt("eyes",30)*60000L).commit())
     }
     fun schedule() {
@@ -64,15 +71,27 @@ class WorkMode(private val context: Context, private val clock: () -> Long = Sys
         val statusChannel=NotificationChannel("work_status","工作状态",NotificationManager.IMPORTANCE_LOW)
         statusChannel.setSound(null,null); statusChannel.enableVibration(false); nm.createNotificationChannel(statusChannel)
         val open=PendingIntent.getActivity(context,82,Intent(context,MainActivity::class.java),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val builder=NotificationCompat.Builder(context,"work_status").setSmallIcon(android.R.drawable.ic_lock_idle_alarm).setContentTitle("工作中").setContentText("22:00 自动结束").setContentIntent(open).setOngoing(true).setOnlyAlertOnce(true)
-        OngoingActivity.Builder(context,82,builder).setStaticIcon(android.R.drawable.ic_lock_idle_alarm).setTouchIntent(open).build().apply(context)
+        val builder=NotificationCompat.Builder(context,"work_status").setSmallIcon(R.drawable.ic_notification).setLargeIcon(android.graphics.BitmapFactory.decodeResource(context.resources, R.mipmap.ic_launcher)).setContentTitle("工作中").setContentText("22:00 自动结束").setContentIntent(open).setOngoing(true).setOnlyAlertOnce(true)
+        OngoingActivity.Builder(context,82,builder).setStaticIcon(R.drawable.ic_notification).setTouchIntent(open).build().apply(context)
         try { nm.notify(82,builder.build()) } catch (_: SecurityException) { }
         val c = now()
         val minute=c.get(Calendar.HOUR_OF_DAY)*60+c.get(Calendar.MINUTE)
-        val lunch = minute >= prefs.getInt("lunchStart",720) && minute < prefs.getInt("lunchEnd",840)
+        val quietEnd = quietEnd(minute)
         var next = end()
-        if (lunch) {
-            c.set(Calendar.HOUR_OF_DAY,prefs.getInt("lunchEnd",840)/60); c.set(Calendar.MINUTE,prefs.getInt("lunchEnd",840)%60); c.set(Calendar.SECOND,0)
+        for (start in listOf(prefs.getInt("lunchStart",720), prefs.getInt("dinnerStart",1080))) {
+            if (minute < start) {
+                val boundary = (c.clone() as Calendar).apply {
+                    set(Calendar.HOUR_OF_DAY,start/60); set(Calendar.MINUTE,start%60)
+                    set(Calendar.SECOND,0); set(Calendar.MILLISECOND,0)
+                }
+                next = minOf(next,boundary.timeInMillis)
+            }
+        }
+        if (quietEnd != null) {
+            c.set(Calendar.HOUR_OF_DAY,quietEnd/60); c.set(Calendar.MINUTE,quietEnd%60); c.set(Calendar.SECOND,0); c.set(Calendar.MILLISECOND,0)
+            // Start fresh intervals after the break; never replay missed reminders.
+            resetDue(c.timeInMillis)
+            nm.cancel(81)
             next = minOf(next,c.timeInMillis)
         } else {
             for (key in listOf("water", "eyes")) if (prefs.getInt(key, if(key=="water")60 else 30)>0) next=minOf(next,prefs.getLong(key+"Due",clock()+60000))
@@ -84,7 +103,7 @@ class WorkMode(private val context: Context, private val clock: () -> Long = Sys
         if (end() <= clock()) { stop(); return }
         val current = now()
         val minute = current.get(Calendar.HOUR_OF_DAY)*60+current.get(Calendar.MINUTE)
-        if (minute >= prefs.getInt("lunchStart",720) && minute < prefs.getInt("lunchEnd",840)) { resetDue(); schedule(); return }
+        if (quietEnd(minute) != null) { schedule(); return }
         val focus = context.getSharedPreferences("focus_timer_v1", Context.MODE_PRIVATE).getString("state",null)?.let { JSONObject(it) }
         val focused = focus?.optString("status") == "running" && focus.optString("kind") == "focus" && focus.optLong("deadlineWall") > clock()
         val due = listOf("water", "eyes").filter { prefs.getInt(it,if(it=="water")60 else 30)>0 && prefs.getLong(it+"Due",0) <= clock()+60000 }
@@ -100,7 +119,7 @@ class WorkMode(private val context: Context, private val clock: () -> Long = Sys
                 nm.createNotificationChannel(channel)
                 val message=due.joinToString("，") { if(it=="water") "喝口水" else "看看远处，休息眼睛" }
                 val open=PendingIntent.getActivity(context,81,Intent(context,MainActivity::class.java),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-                val notification=Notification.Builder(context,"work_reminders").setSmallIcon(android.R.drawable.ic_lock_idle_alarm).setContentTitle(message).setContentIntent(open).setAutoCancel(true).setTimeoutAfter(5000).build()
+                val notification=Notification.Builder(context,"work_reminders").setSmallIcon(R.drawable.ic_notification).setLargeIcon(android.graphics.BitmapFactory.decodeResource(context.resources, R.mipmap.ic_launcher)).setContentTitle(message).setContentIntent(open).setAutoCancel(true).setTimeoutAfter(5000).build()
                 try { nm.notify(81,notification) } catch (_: SecurityException) { }
             }
             val edit=prefs.edit(); for(key in due) edit.putLong(key+"Due",clock()+prefs.getInt(key,60)*60000L); check(edit.commit())

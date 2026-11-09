@@ -71,7 +71,7 @@ class FocusTimer(private val context: Context) {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val builder = NotificationCompat.Builder(context, if (finished) "focus_finished" else "focus_progress")
         val rest = value.getString("kind") == "rest"
-        builder.setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+        builder.setSmallIcon(R.drawable.ic_notification).setLargeIcon(android.graphics.BitmapFactory.decodeResource(context.resources, R.mipmap.ic_launcher))
             .setContentTitle(if (finished) { if (rest) "休息结束" else "本次专注完成" } else value.getString("taskTitle"))
             .setContentText(if (finished) value.getString("taskTitle") else if (rest) "休息中" else if (value.getString("status") == "paused") "已暂停" else "专注中")
             .setContentIntent(open).setOngoing(!finished).setAutoCancel(finished)
@@ -81,7 +81,7 @@ class FocusTimer(private val context: Context) {
             builder.setWhen(System.currentTimeMillis() + remaining(value)).setUsesChronometer(true).setChronometerCountDown(true)
         }
         if (!finished && value.getString("status") == "running") {
-            OngoingActivity.Builder(context, 73, builder).setStaticIcon(android.R.drawable.ic_lock_idle_alarm).setTouchIntent(open).build().apply(context)
+            OngoingActivity.Builder(context, 73, builder).setStaticIcon(R.drawable.ic_notification).setTouchIntent(open).build().apply(context)
         }
         notifications.notify(73, builder.build())
     }

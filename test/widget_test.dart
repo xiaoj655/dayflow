@@ -35,7 +35,7 @@ Future<AppController> configure(
     repository: repository ?? FakeRepository(),
     store: MemoryStore(),
     engine: FakeFocusEngine(),
-    clock: clock,
+    clock: clock ?? () => DateTime.utc(2026, 11, 9, 2),
   );
   await app.initialize();
   await app.refresh();
@@ -75,7 +75,7 @@ Future<void> reveal(WidgetTester tester, Finder finder) async {
 }
 
 void main() {
-  for (final diameter in [200.0, 240.0, 360.0]) {
+  for (final diameter in [192.0, 200.0, 240.0, 360.0]) {
     testWidgets(
       'Round ${diameter}dp fills circle and scales edge cards without changing list geometry',
       (tester) async {
@@ -176,10 +176,10 @@ void main() {
       await rotary(tester, 40);
       await tester.pumpAndSettle();
       expect(app.lastMinutes, 25);
-      await tester.tap(find.text('开始'));
+      await tester.tap(find.text('开始专注'));
       await tester.pumpAndSettle();
       expect(app.lastMinutes, 30);
-      expect(app.focus!.taskTitle, '街头观察');
+      expect(app.focus!.taskTitle, '自由专注');
       expect(find.text('30:00'), findsOneWidget);
       await tester.tap(find.byTooltip('暂停'));
       await tester.pumpAndSettle();
@@ -258,7 +258,7 @@ void main() {
       },
     );
   }
-  for (final diameter in [200.0, 240.0, 360.0]) {
+  for (final diameter in [192.0, 200.0, 240.0, 360.0]) {
     testWidgets(
       'Task focus at ${diameter}dp hides selector and retains task/action',
       (tester) async {
@@ -271,7 +271,7 @@ void main() {
         expect(find.byKey(const ValueKey('focus-task-selector')), findsNothing);
         expect(find.byKey(const ValueKey('focus-task-title')), findsOneWidget);
         expect(find.text('先观察一个路口'), findsOneWidget);
-        await tester.tap(find.text('开始'));
+        await tester.tap(find.text('开始专注'));
         await tester.pumpAndSettle();
         expect(app.focus!.startAction, '先观察一个路口');
         expect(find.byKey(const ValueKey('active-focus-task')), findsOneWidget);
@@ -331,7 +331,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
   testWidgets(
-    'Large type focus setup and running controls scroll without overflow',
+    'Large type focus setup fits and running controls scroll without overflow',
     (tester) async {
       await configure(tester, diameter: 200, textScale: 2);
       await reveal(tester, find.text('街头观察'));
@@ -340,8 +340,7 @@ void main() {
       await reveal(tester, find.byKey(const ValueKey('detail-focus-top')));
       await tester.tap(find.byKey(const ValueKey('detail-focus-top')));
       await tester.pumpAndSettle();
-      await reveal(tester, find.text('开始'));
-      await tester.tap(find.text('开始'));
+      await tester.tap(find.text('开始专注'));
       await tester.pumpAndSettle();
       await reveal(tester, find.byTooltip('暂停'));
       await tester.tap(find.byTooltip('暂停'));
@@ -394,6 +393,12 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('task-date-selector')));
       await tester.pumpAndSettle();
       final yesterday = today.subtract(const Duration(days: 1));
+      // The calendar starts at the selected week, so Monday's yesterday
+      // needs one backward crown step to reveal the preceding Sunday.
+      if (today.weekday == DateTime.monday) {
+        await rotary(tester, -40);
+        await tester.pumpAndSettle();
+      }
       await tester.tap(
         find.byKey(ValueKey('calendar-day-${dayKey(yesterday)}')),
       );
@@ -460,7 +465,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(controller.offset, initial + 120);
       expect(app.lastMinutes, 25);
-      await tester.tap(find.text('开始'));
+      await tester.tap(find.text('开始专注'));
       await tester.pumpAndSettle();
       expect(app.lastMinutes, 40);
       expect(tester.takeException(), isNull);
@@ -521,7 +526,20 @@ void main() {
       await tester.tap(bottom);
       await tester.pumpAndSettle();
       expect(find.byType(FocusSetupPage), findsOneWidget);
-      expect(tester.getRect(find.byType(WearEdgeButton)).bottom, 240);
+      expect(find.byType(WearEdgeButton), findsNothing);
+      final start = tester.getRect(find.widgetWithText(FilledButton, '开始专注'));
+      final circle = tester.getRect(find.byType(ClipOval));
+      for (final corner in [
+        start.topLeft,
+        start.topRight,
+        start.bottomLeft,
+        start.bottomRight,
+      ]) {
+        expect(
+          (corner - circle.center).distance,
+          lessThanOrEqualTo(circle.width / 2),
+        );
+      }
       expect(tester.takeException(), isNull);
     },
   );
@@ -538,7 +556,10 @@ void main() {
         expect(app.date, dayKey(today.add(Duration(days: days))));
         expect(app.tasks.every((task) => task.date == app.date), isTrue);
         expect(
-          find.text('${days == 1 ? '明天' : '后天'} · ${app.date.substring(5)}'),
+          find.descendant(
+            of: find.byKey(const ValueKey('task-date-selector')),
+            matching: find.text(days == 1 ? '明天' : '后天'),
+          ),
           findsOneWidget,
         );
         expect(find.byType(TaskDatePage), findsNothing);

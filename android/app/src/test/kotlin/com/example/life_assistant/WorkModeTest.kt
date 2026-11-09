@@ -47,6 +47,35 @@ class WorkModeTest {
         work.stop()
         assertEquals(false,work.snapshot()["active"])
     }
+    @Test fun dinnerPausesRemindersAndResumesWithoutBacklog() {
+        wall = Instant.parse("2026-11-08T09:59:00Z").toEpochMilli()
+        val work = createWork()
+        work.handle("start",emptyMap<Any,Any>())
+        val alarms = org.robolectric.Shadows.shadowOf(context.getSystemService(android.app.AlarmManager::class.java))
+        assertEquals(Instant.parse("2026-11-08T10:00:00Z").toEpochMilli(), alarms.nextScheduledAlarm?.triggerAtTime)
+        wall = Instant.parse("2026-11-08T10:00:00Z").toEpochMilli()
+        work.receive()
+        wall = Instant.parse("2026-11-08T10:59:00Z").toEpochMilli()
+        createWork().receive()
+        val notifications = org.robolectric.Shadows.shadowOf(context.getSystemService(android.app.NotificationManager::class.java))
+        assertNull(notifications.getNotification(81))
+        assertEquals(true,work.snapshot()["active"])
+        wall = Instant.parse("2026-11-08T11:00:00Z").toEpochMilli()
+        work.receive()
+        assertNull(notifications.getNotification(81))
+        wall += Duration.ofMinutes(30).toMillis()
+        work.receive()
+        assertNotNull(notifications.getNotification(81))
+        assertEquals(true,work.snapshot()["active"])
+    }
+    @Test fun dinnerRulesPersistAndOldClientsKeepDefaults() {
+        val work = createWork()
+        val rules = mapOf("lunchStart" to 720, "lunchEnd" to 840, "endMinute" to 1320, "autoEnd" to true)
+        assertEquals(1080,work.handle("rules",rules)["dinnerStart"])
+        work.handle("rules",rules + mapOf("dinnerStart" to 1050, "dinnerEnd" to 1170))
+        assertEquals(1050,createWork().snapshot()["dinnerStart"])
+        assertEquals(1170,work.handle("rules",rules)["dinnerEnd"])
+    }
     @Test fun runningFocusDelaysCombinedReminderAndNoBacklogIsReplayed() {
         val work=createWork(); work.handle("start",emptyMap<Any,Any>())
         val prefs=context.getSharedPreferences("dayflow_work",Context.MODE_PRIVATE)

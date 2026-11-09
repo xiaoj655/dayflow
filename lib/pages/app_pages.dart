@@ -288,13 +288,20 @@ class _TaskListPageState extends State<TaskListPage> {
                   TextButton(
                     style: TextButton.styleFrom(
                       minimumSize: const Size(36, 36),
-                      padding: const EdgeInsets.symmetric(horizontal: 3),
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      backgroundColor: controller.space == entry.key
+                          ? AppColors.overlay
+                          : Colors.transparent,
+                      shape: const StadiumBorder(),
                     ),
                     onPressed: () => controller.selectSpace(entry.key),
                     child: Text(
                       entry.value,
                       style: TextStyle(
                         fontSize: 12,
+                        fontWeight: controller.space == entry.key
+                            ? FontWeight.w600
+                            : FontWeight.w400,
                         color: controller.space == entry.key ? accent : muted,
                       ),
                     ),
@@ -361,14 +368,23 @@ class _TaskListPageState extends State<TaskListPage> {
                       horizontal: 16,
                       vertical: 14,
                     ),
-                    backgroundColor: accent.withValues(alpha: .16),
-                    foregroundColor: accent,
+                    backgroundColor: surface,
+                    foregroundColor: AppColors.text,
                     shape: const StadiumBorder(),
                   ),
                   onPressed: () => _focus(context),
                   child: Row(
                     children: [
-                      const Icon(Icons.timer_outlined, size: 20),
+                      Icon(
+                        Icons.timer_outlined,
+                        size: 20,
+                        color:
+                            !controller.focus!.finished &&
+                                !controller.focus!.paused &&
+                                controller.focus!.kind == 'focus'
+                            ? AppColors.focus
+                            : muted,
+                      ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
@@ -495,7 +511,7 @@ class _TaskListPageState extends State<TaskListPage> {
                 padding: const EdgeInsets.only(top: 12),
                 child: Tooltip(
                   message: '专注',
-                  child: FilledButton.tonalIcon(
+                  child: FilledButton.icon(
                     onPressed: () => _focus(context),
                     icon: const Icon(Icons.timer_outlined, size: 20),
                     label: const Text('开始自由专注'),
@@ -592,8 +608,13 @@ class TaskTile extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Material(
-        color: surface,
-        shape: const StadiumBorder(),
+        color: task.completed ? AppColors.background : surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24),
+          side: task.completed
+              ? const BorderSide(color: AppColors.surface)
+              : BorderSide.none,
+        ),
         clipBehavior: Clip.antiAlias,
         child: Row(
           children: [
@@ -603,7 +624,7 @@ class TaskTile extends StatelessWidget {
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(minHeight: 64),
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(18, 12, 4, 12),
+                    padding: const EdgeInsets.fromLTRB(18, 12, 8, 12),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -645,7 +666,7 @@ class TaskTile extends StatelessWidget {
                   task.completed
                       ? Icons.check_circle_rounded
                       : Icons.radio_button_unchecked_rounded,
-                  color: task.completed ? AppColors.completed : accent,
+                  color: task.completed ? muted : AppColors.faint,
                   size: 24,
                 ),
               ),
@@ -1007,7 +1028,7 @@ class _FocusSetupPageState extends State<FocusSetupPage> {
             child: Container(
               height: 40,
               decoration: BoxDecoration(
-                color: AppColors.peach.withValues(alpha: .16),
+                color: AppColors.overlay,
                 borderRadius: BorderRadius.circular(20),
               ),
             ),
@@ -1255,7 +1276,7 @@ class FocusPage extends StatelessWidget {
             const SizedBox(height: 8),
             const Icon(
               Icons.check_circle_outline_rounded,
-              color: AppColors.completed,
+              color: AppColors.muted,
               size: 32,
             ),
             const SizedBox(height: 8),
@@ -1315,6 +1336,9 @@ class FocusPage extends StatelessWidget {
       );
       final action = focus.kind == 'focus' ? focus.startAction?.trim() : null;
       final hasAction = action?.isNotEmpty == true;
+      final focusColor = !focus.paused && focus.kind == 'focus'
+          ? AppColors.focus
+          : muted;
       final statusText = Text(
         focus.paused
             ? '已暂停'
@@ -1322,7 +1346,7 @@ class FocusPage extends StatelessWidget {
             ? '休息中'
             : '专注中',
         key: const ValueKey('active-focus-status'),
-        style: const TextStyle(color: accent, fontSize: 12, height: 1),
+        style: TextStyle(color: focusColor, fontSize: 12, height: 1),
       );
       final status = Row(
         mainAxisSize: MainAxisSize.min,
@@ -1392,6 +1416,7 @@ class FocusPage extends StatelessWidget {
                             painter: _TimerRing(
                               focus.remainingMillis /
                                   (focus.plannedSeconds * 1000),
+                              focusColor,
                             ),
                           ),
                         ),
@@ -1428,7 +1453,7 @@ class FocusPage extends StatelessWidget {
                           ),
                         ),
                       Positioned(
-                        top: side * (side < 220 ? .42 : .43),
+                        top: side * (side < 220 ? .39 : .43),
                         left: side * .12,
                         right: side * .12,
                         child: FittedBox(
@@ -1449,13 +1474,13 @@ class FocusPage extends StatelessWidget {
                         ),
                       ),
                       Positioned(
-                        top: side * (side < 220 ? .61 : .65),
+                        top: side * (side < 220 ? .58 : .65),
                         left: 0,
                         right: 0,
                         child: Center(child: status),
                       ),
                       Positioned(
-                        top: math.min(side * .73, side - 66),
+                        top: math.min(side * .73, side - 68),
                         left: 0,
                         right: 0,
                         child: _controls(context),
@@ -1473,8 +1498,9 @@ class FocusPage extends StatelessWidget {
 }
 
 class _TimerRing extends CustomPainter {
-  _TimerRing(this.fraction);
+  _TimerRing(this.fraction, this.color);
   final double fraction;
+  final Color color;
   @override
   void paint(Canvas canvas, Size size) {
     final rect = Rect.fromCircle(
@@ -1488,7 +1514,7 @@ class _TimerRing extends CustomPainter {
       ..color = surface;
     canvas.drawArc(rect, 0, math.pi * 2, false, paint);
     paint
-      ..color = accent
+      ..color = color
       ..strokeCap = StrokeCap.round;
     canvas.drawArc(
       rect,
@@ -1501,7 +1527,7 @@ class _TimerRing extends CustomPainter {
 
   @override
   bool shouldRepaint(_TimerRing oldDelegate) =>
-      oldDelegate.fraction != fraction;
+      oldDelegate.fraction != fraction || oldDelegate.color != color;
 }
 
 class TaskEditorPage extends StatefulWidget {
@@ -1772,7 +1798,7 @@ class _TaskEditorPageState extends State<TaskEditorPage> {
                     if (mounted) setState(() => busy = false);
                   }
                 },
-          child: const Text('停止安排', style: TextStyle(color: AppColors.primary)),
+          child: const Text('停止安排', style: TextStyle(color: AppColors.error)),
         ),
     ],
   );
@@ -1901,7 +1927,7 @@ class _HistoryPageState extends State<HistoryPage> {
                     '${total ~/ 60} 分钟',
                     style: const TextStyle(
                       fontSize: 22,
-                      color: AppColors.analysis,
+                      color: AppColors.text,
                       fontFeatures: [FontFeature.tabularFigures()],
                     ),
                   ),
@@ -2026,7 +2052,7 @@ class _WorkModePageState extends State<WorkModePage>
       Center(
         child: Text(
           state['active'] == true ? '工作中' : '尚未开始工作',
-          style: const TextStyle(color: AppColors.work),
+          style: const TextStyle(color: AppColors.muted),
         ),
       ),
       const SizedBox(height: 8),
@@ -2042,6 +2068,12 @@ class _WorkModePageState extends State<WorkModePage>
           textAlign: TextAlign.center,
           style: const TextStyle(color: muted, fontSize: 12),
         ),
+      const SizedBox(height: 16),
+      const Text(
+        '休息提醒',
+        textAlign: TextAlign.center,
+        style: TextStyle(color: muted, fontSize: 12),
+      ),
       for (final entry in {'water': '喝水', 'eyes': '远眺休息'}.entries)
         Column(
           children: [
@@ -2085,19 +2117,26 @@ class _WorkModePageState extends State<WorkModePage>
                       },
                 child: Text(
                   '每 ${state[entry.key] ?? 30} 分钟  ›',
-                  style: TextStyle(
-                    color: entry.key == 'water'
-                        ? AppColors.water
-                        : AppColors.reminder,
-                  ),
+                  style: const TextStyle(color: muted),
                 ),
               ),
           ],
         ),
-      const Divider(),
+      const SizedBox(height: 8),
+      const Divider(color: AppColors.overlay),
+      const Padding(
+        padding: EdgeInsets.symmetric(vertical: 8),
+        child: Text(
+          '工作时段',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: muted, fontSize: 12),
+        ),
+      ),
       for (final entry in {
         'lunchStart': '午休开始',
         'lunchEnd': '午休结束',
+        'dinnerStart': '晚休开始',
+        'dinnerEnd': '晚休结束',
         'endMinute': '自动结束时间',
       }.entries)
         TextButton(
@@ -2110,6 +2149,10 @@ class _WorkModePageState extends State<WorkModePage>
                           ? 720
                           : entry.key == 'lunchEnd'
                           ? 840
+                          : entry.key == 'dinnerStart'
+                          ? 1080
+                          : entry.key == 'dinnerEnd'
+                          ? 1140
                           : 1320);
                   final value = await Navigator.push<int>(
                     context,
@@ -2126,6 +2169,8 @@ class _WorkModePageState extends State<WorkModePage>
                     call('rules', {
                       'lunchStart': state['lunchStart'] ?? 720,
                       'lunchEnd': state['lunchEnd'] ?? 840,
+                      'dinnerStart': state['dinnerStart'] ?? 1080,
+                      'dinnerEnd': state['dinnerEnd'] ?? 1140,
                       'autoEnd': state['autoEnd'] ?? true,
                       'endMinute': state['endMinute'] ?? 1320,
                       entry.key: value,
@@ -2137,6 +2182,10 @@ class _WorkModePageState extends State<WorkModePage>
                         ? 720
                         : entry.key == 'lunchEnd'
                         ? 840
+                        : entry.key == 'dinnerStart'
+                        ? 1080
+                        : entry.key == 'dinnerEnd'
+                        ? 1140
                         : 1320)) ~/ 60).toString().padLeft(2, '0')}:${((state[entry.key] as int? ?? 0) % 60).toString().padLeft(2, '0')}',
           ),
         ),
@@ -2149,6 +2198,8 @@ class _WorkModePageState extends State<WorkModePage>
             : (v) => call('rules', {
                 'lunchStart': state['lunchStart'] ?? 720,
                 'lunchEnd': state['lunchEnd'] ?? 840,
+                'dinnerStart': state['dinnerStart'] ?? 1080,
+                'dinnerEnd': state['dinnerEnd'] ?? 1140,
                 'endMinute': state['endMinute'] ?? 1320,
                 'autoEnd': v,
               }),
@@ -2157,7 +2208,7 @@ class _WorkModePageState extends State<WorkModePage>
         Text(
           error!,
           textAlign: TextAlign.center,
-          style: const TextStyle(color: AppColors.work),
+          style: const TextStyle(color: AppColors.error),
         ),
     ],
   );
@@ -2267,13 +2318,13 @@ class _WorkSummaryState extends State<WorkSummary> {
           onPressed: busy ? null : toggle,
           child: Text(
             active ? '结束工作' : '开始工作',
-            style: const TextStyle(fontSize: 12, color: AppColors.work),
+            style: const TextStyle(fontSize: 12, color: AppColors.muted),
           ),
         ),
       ),
       IconButton(
         tooltip: '工作提醒设置',
-        icon: const Icon(Icons.tune_rounded, size: 18, color: AppColors.work),
+        icon: const Icon(Icons.tune_rounded, size: 18, color: AppColors.muted),
         onPressed: () async {
           await Navigator.push(
             context,

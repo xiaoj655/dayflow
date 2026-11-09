@@ -124,10 +124,10 @@ class DayTimelineSpan {
       minutes(start),
       dayKey(start) == dayKey(end) ? minutes(end) : 1440,
       row['kind'] == 'rest'
-          ? AppColors.completed
+          ? AppColors.timelineRest
           : row['space'] == 'work'
-          ? AppColors.work
-          : AppColors.primary,
+          ? AppColors.timelineWork
+          : AppColors.timelineLife,
     );
   }
 }

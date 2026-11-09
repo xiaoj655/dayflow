@@ -147,12 +147,17 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         surface: surface,
         surfaceContainerHigh: AppColors.overlay,
         outline: AppColors.faint,
-        secondary: AppColors.work,
+        secondary: AppColors.text,
+        secondaryContainer: AppColors.overlay,
+        onSecondaryContainer: AppColors.text,
+        primaryContainer: AppColors.overlay,
+        onPrimaryContainer: AppColors.text,
+        surfaceTint: Colors.transparent,
         onSecondary: AppColors.background,
         onSurfaceVariant: AppColors.muted,
-        tertiary: AppColors.reminder,
+        tertiary: AppColors.muted,
         onTertiary: AppColors.background,
-        error: AppColors.primary,
+        error: AppColors.error,
       ),
       platform: TargetPlatform.android,
       useMaterial3: true,
@@ -173,7 +178,10 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         bodyMedium: TextStyle(fontSize: 16, height: 1.4),
       ),
       textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
+        style: TextButton.styleFrom(
+          minimumSize: const Size(48, 48),
+          foregroundColor: AppColors.text,
+        ),
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
