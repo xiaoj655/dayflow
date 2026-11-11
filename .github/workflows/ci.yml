@@ -47,7 +47,9 @@ jobs:
       - run: flutter analyze
       - run: flutter test --exclude-tags=database
       - name: Render watch UI and refresh README gallery
-        run: python3 scripts/capture_watch_ui.py
+        run: |
+          python3 -m pip install -r scripts/requirements-screenshots.txt
+          python3 scripts/capture_watch_ui.py
       - uses: actions/upload-artifact@v7
         with:
           name: watch-ui-docs

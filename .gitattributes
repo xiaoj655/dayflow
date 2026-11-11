@@ -3,6 +3,7 @@
 # Keep the Unix wrapper runnable when checked out on Windows.
 gradlew text eol=lf
 *.sh text eol=lf
+Makefile text eol=lf
 *.bat text eol=crlf
 
 *.png binary

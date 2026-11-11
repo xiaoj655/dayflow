@@ -3,6 +3,7 @@ import '../models/task.dart';
 abstract class TaskRepository {
   Future<List<DailyTask>> fetchDay(String date);
   Future<void> addToToday(DailyTask task, String today);
+  Future<void> setWaiting(String id, bool waiting);
   Future<void> setCompleted(String id, String? completedAt, String changedAt);
   Future<void> saveTask(TaskDraft draft, {DailyTask? existing});
   Future<void> archiveTask(DailyTask task);

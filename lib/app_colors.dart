@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-/// Neutral surfaces with red primary actions and selected states.
+/// Neutral surfaces, red primary actions and mint task progress.
 abstract final class AppColors {
   static const background = Color(0xFF000000);
   static const surface = Color(0xFF161616);
@@ -9,6 +9,7 @@ abstract final class AppColors {
   static const primary = Color(0xFFFF2056);
   static const text = Color(0xFFFFFFFF);
   static const muted = Color(0xFFC5C5C5);
+  static const taskProgress = Color(0xFFB8DCC6);
   static const focus = primary;
   static const error = focus;
 

@@ -85,12 +85,47 @@ void showNotice(
   SnackBarAction? action,
 }) {
   final round = ScreenShape.of(context);
+  var actionUsed = false;
+  final content = Text(
+    message,
+    textAlign: TextAlign.center,
+    style: round
+        ? const TextStyle(fontFamily: 'Roboto', fontSize: 12, height: 1.2)
+        : null,
+  );
   ScaffoldMessenger.of(context)
     ..clearSnackBars()
     ..showSnackBar(
       SnackBar(
-        content: Text(message, textAlign: TextAlign.center),
-        action: action,
+        content: round && action != null
+            ? Row(
+                children: [
+                  Expanded(child: content),
+                  TextButton(
+                    style: TextButton.styleFrom(
+                      minimumSize: const Size(32, 32),
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      textStyle: const TextStyle(
+                        fontFamily: 'Roboto',
+                        fontSize: 12,
+                        height: 1.2,
+                      ),
+                    ),
+                    onPressed: () {
+                      if (actionUsed) return;
+                      actionUsed = true;
+                      ScaffoldMessenger.of(context).hideCurrentSnackBar(
+                        reason: SnackBarClosedReason.action,
+                      );
+                      action.onPressed();
+                    },
+                    child: Text(action.label),
+                  ),
+                ],
+              )
+            : content,
+        action: round ? null : action,
         persist: false,
         duration: const Duration(seconds: 3),
         behavior: SnackBarBehavior.floating,
@@ -219,7 +254,9 @@ class _TaskListPageState extends State<TaskListPage> {
   double _swipeDistance = 0;
 
   void _endDaySwipe(DragEndDetails details) {
-    if (ModalRoute.of(context)?.isCurrent != true || controller.initializing) {
+    if (controller.space == 'work' ||
+        ModalRoute.of(context)?.isCurrent != true ||
+        controller.initializing) {
       return;
     }
     final width = MediaQuery.sizeOf(context).width;
@@ -272,7 +309,6 @@ class _TaskListPageState extends State<TaskListPage> {
     child: AnimatedBuilder(
       animation: controller,
       builder: (context, _) {
-        final dateLabel = taskDateLabel(controller.date, controller.today);
         return AppPage(
           isRound: isRound,
           topPadding: isRound ? 12 : null,
@@ -281,58 +317,52 @@ class _TaskListPageState extends State<TaskListPage> {
             'daily-tasks-${controller.space}-${controller.date}',
           ),
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                for (final entry in {'life': '生活', 'work': '工作'}.entries)
-                  TextButton(
-                    style: TextButton.styleFrom(
-                      minimumSize: const Size(36, 36),
-                      padding: const EdgeInsets.symmetric(horizontal: 6),
-                      backgroundColor: controller.space == entry.key
-                          ? AppColors.overlay
-                          : Colors.transparent,
-                      shape: const StadiumBorder(),
-                    ),
-                    onPressed: () => controller.selectSpace(entry.key),
-                    child: Text(
-                      entry.value,
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: controller.space == entry.key
-                            ? FontWeight.w600
-                            : FontWeight.w400,
-                        color: controller.space == entry.key ? accent : muted,
-                      ),
-                    ),
-                  ),
-                Flexible(
-                  child: TextButton(
-                    key: const ValueKey('task-date-selector'),
-                    style: TextButton.styleFrom(
-                      minimumSize: const Size(40, 36),
-                      padding: EdgeInsets.zero,
-                    ),
-                    onPressed: () => _open(
-                      context,
-                      TaskDatePage(controller: controller, isRound: isRound),
-                    ),
-                    child: Text(
-                      dateLabel,
-                      style: const TextStyle(color: muted, fontSize: 12),
-                    ),
-                  ),
+            Center(
+              child: Container(
+                padding: const EdgeInsets.all(3),
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(30),
                 ),
-              ],
-            ),
-            if (controller.date != controller.today)
-              Center(
-                child: TextButton(
-                  onPressed: () =>
-                      controller.selectDate(DateTime.parse(controller.today)),
-                  child: const Text('回到今天'),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (final entry in {'life': '生活', 'work': '工作'}.entries)
+                      Semantics(
+                        selected: controller.space == entry.key,
+                        child: TextButton(
+                          style: TextButton.styleFrom(
+                            minimumSize: const Size(60, 30),
+                            padding: const EdgeInsets.symmetric(horizontal: 14),
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            backgroundColor: controller.space == entry.key
+                                ? AppColors.overlay
+                                : Colors.transparent,
+                            foregroundColor: controller.space == entry.key
+                                ? AppColors.text
+                                : muted,
+                            shape: const StadiumBorder(),
+                          ),
+                          onPressed: () => controller.selectSpace(entry.key),
+                          child: Text(
+                            entry.value,
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
+            ),
+            const SizedBox(height: 2),
+            _TaskProgressCard(
+              controller: controller,
+              onSelectDate: () => _open(
+                context,
+                TaskDatePage(controller: controller, isRound: isRound),
+              ),
+            ),
+            const SizedBox(height: 4),
             if (!isRound)
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -351,14 +381,6 @@ class _TaskListPageState extends State<TaskListPage> {
                   ),
                 ],
               ),
-            if (controller.space == 'work') const WorkSummary(),
-            Center(
-              child: Text(
-                '${controller.completed.length} / ${controller.visibleTasks.length} 已完成',
-                style: const TextStyle(color: muted, fontSize: 11),
-              ),
-            ),
-            SizedBox(height: isRound ? 6 : 12),
             if (controller.focus != null)
               Padding(
                 padding: const EdgeInsets.only(bottom: 10),
@@ -430,9 +452,68 @@ class _TaskListPageState extends State<TaskListPage> {
                   ),
                 ),
               ),
-            for (final task in controller.pending)
+            for (final waiting
+                in (controller.space == 'work' ? [false, true] : [false])) ...[
+              if (controller.space == 'work' &&
+                  waiting &&
+                  controller.pending.any((t) => t.waiting))
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 0, 6),
+                  child: Text(
+                    '等待中',
+                    style: const TextStyle(color: muted, fontSize: 11),
+                  ),
+                ),
+              for (final task in controller.pending.where(
+                (t) => controller.space != 'work' || t.waiting == waiting,
+              ))
+                TaskTile(
+                  task: task,
+                  focusCount: controller.focusCount(task),
+                  onToggle: () async {
+                    await controller.toggle(task);
+                    TouchHaptics.selectionClick();
+                    if (context.mounted) {
+                      showNotice(
+                        context,
+                        task.completed ? '已恢复待办' : '已完成',
+                        action: SnackBarAction(
+                          label: '撤销',
+                          onPressed: () {
+                            final current = controller.tasks
+                                .where((item) => item.id == task.id)
+                                .firstOrNull;
+                            if (current != null &&
+                                current.completed != task.completed) {
+                              controller.toggle(current);
+                            }
+                          },
+                        ),
+                      );
+                    }
+                  },
+                  onTap: () => _open(
+                    context,
+                    TaskDetailPage(
+                      controller: controller,
+                      task: task,
+                      isRound: isRound,
+                    ),
+                  ),
+                ),
+            ],
+            if (controller.completed.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 18, 0, 10),
+                child: Text(
+                  '${controller.space == 'work' ? '本周已完成' : '已完成'} · ${controller.completed.length}',
+                  style: const TextStyle(color: muted, fontSize: 12),
+                ),
+              ),
+            for (final task in controller.completed)
               TaskTile(
                 task: task,
+                focusCount: controller.focusCount(task),
                 onToggle: () async {
                   await controller.toggle(task);
                   TouchHaptics.selectionClick();
@@ -464,45 +545,19 @@ class _TaskListPageState extends State<TaskListPage> {
                   ),
                 ),
               ),
-            if (controller.completed.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 18, 0, 10),
-                child: Text(
-                  '已完成 · ${controller.completed.length}',
-                  style: const TextStyle(color: muted, fontSize: 12),
-                ),
-              ),
-            for (final task in controller.completed)
-              TaskTile(
-                task: task,
-                onToggle: () async {
-                  await controller.toggle(task);
-                  TouchHaptics.selectionClick();
-                  if (context.mounted) {
-                    showNotice(
-                      context,
-                      task.completed ? '已恢复待办' : '已完成',
-                      action: SnackBarAction(
-                        label: '撤销',
-                        onPressed: () {
-                          final current = controller.tasks
-                              .where((item) => item.id == task.id)
-                              .firstOrNull;
-                          if (current != null &&
-                              current.completed != task.completed) {
-                            controller.toggle(current);
-                          }
-                        },
-                      ),
-                    );
-                  }
-                },
-                onTap: () => _open(
-                  context,
-                  TaskDetailPage(
-                    controller: controller,
-                    task: task,
-                    isRound: isRound,
+            if (controller.space == 'work')
+              Center(
+                child: TextButton(
+                  onPressed: () => _open(
+                    context,
+                    WorkTaskHistoryPage(
+                      controller: controller,
+                      isRound: isRound,
+                    ),
+                  ),
+                  child: const Text(
+                    '完成记录',
+                    style: TextStyle(color: muted, fontSize: 11),
                   ),
                 ),
               ),
@@ -547,6 +602,183 @@ class _TaskListPageState extends State<TaskListPage> {
       },
     ),
   );
+}
+
+/// The visible day's tasks or the current weekly work pool share one summary.
+class _TaskProgressCard extends StatelessWidget {
+  const _TaskProgressCard({
+    required this.controller,
+    required this.onSelectDate,
+  });
+
+  final AppController controller;
+  final VoidCallback onSelectDate;
+
+  @override
+  Widget build(BuildContext context) {
+    final work = controller.space == 'work';
+    final date = DateTime.parse(controller.date);
+    final today = controller.date == controller.today;
+    final total = controller.visibleTasks.length;
+    final completed = controller.completed.length;
+    final value = total == 0 ? 0.0 : completed / total;
+    final title = work
+        ? '本周任务'
+        : today
+        ? '今日任务'
+        : '${date.month}月${date.day}日';
+    return Container(
+      key: const ValueKey('task-progress-card'),
+      padding: const EdgeInsets.fromLTRB(12, 4, 8, 4),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(26),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                flex: 3,
+                child: work
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          Text(
+                            workWeekLabel(controller.today).substring(3),
+                            maxLines: 1,
+                            style: const TextStyle(
+                              color: muted,
+                              fontSize: 10,
+                              height: 1.2,
+                            ),
+                          ),
+                        ],
+                      )
+                    : TextButton(
+                        key: const ValueKey('task-date-selector'),
+                        style: TextButton.styleFrom(
+                          alignment: Alignment.centerLeft,
+                          minimumSize: const Size(44, 30),
+                          padding: EdgeInsets.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        onPressed: onSelectDate,
+                        child: Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                title,
+                                maxLines: 1,
+                                style: const TextStyle(
+                                  color: AppColors.text,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                            const Icon(
+                              Icons.expand_more_rounded,
+                              size: 12,
+                              color: muted,
+                            ),
+                          ],
+                        ),
+                      ),
+              ),
+              const SizedBox(width: 4),
+              Expanded(
+                flex: 2,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerRight,
+                  child: Semantics(
+                    label: '$title，$total项任务，已完成$completed项',
+                    child: ExcludeSemantics(
+                      child: total == 0
+                          ? Text(
+                              controller.initializing || controller.loading
+                                  ? '加载中'
+                                  : controller.offline
+                                  ? '待同步'
+                                  : '暂无任务',
+                              style: const TextStyle(
+                                color: muted,
+                                fontSize: 11,
+                              ),
+                            )
+                          : Text.rich(
+                              TextSpan(
+                                children: [
+                                  TextSpan(
+                                    text: '$completed',
+                                    style: const TextStyle(
+                                      color: AppColors.taskProgress,
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  TextSpan(
+                                    text: ' / $total',
+                                    style: const TextStyle(
+                                      color: muted,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              style: const TextStyle(height: 1),
+                            ),
+                    ),
+                  ),
+                ),
+              ),
+              if (work) const WorkSummary(),
+              if (!work && !today)
+                IconButton(
+                  tooltip: '回到今天',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 28,
+                    minHeight: 32,
+                  ),
+                  style: IconButton.styleFrom(
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  onPressed: () =>
+                      controller.selectDate(DateTime.parse(controller.today)),
+                  icon: const Icon(Icons.today_rounded, size: 16, color: muted),
+                ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(3),
+            child: TweenAnimationBuilder<double>(
+              key: ValueKey(
+                'progress-${controller.space}-${work ? controller.today : controller.date}',
+              ),
+              tween: Tween(begin: value, end: value),
+              duration: const Duration(milliseconds: 240),
+              curve: Curves.easeOutCubic,
+              builder: (context, progress, _) => LinearProgressIndicator(
+                value: progress,
+                minHeight: 5,
+                color: AppColors.taskProgress,
+                backgroundColor: AppColors.overlay,
+                semanticsLabel: '任务完成进度',
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 String taskDateLabel(String date, String today) {
@@ -594,10 +826,12 @@ class TaskTile extends StatelessWidget {
     required this.task,
     required this.onTap,
     this.onToggle,
+    this.focusCount,
   });
   final DailyTask task;
   final VoidCallback onTap;
   final VoidCallback? onToggle;
+  final int? focusCount;
   @override
   Widget build(BuildContext context) {
     final subtitle = [
@@ -610,7 +844,7 @@ class TaskTile extends StatelessWidget {
       child: Material(
         color: task.completed ? AppColors.background : surface,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(24),
+          borderRadius: BorderRadius.circular(28),
           side: task.completed
               ? const BorderSide(color: AppColors.surface)
               : BorderSide.none,
@@ -618,43 +852,6 @@ class TaskTile extends StatelessWidget {
         clipBehavior: Clip.antiAlias,
         child: Row(
           children: [
-            Expanded(
-              child: InkWell(
-                onTap: onTap,
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(minHeight: 64),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(18, 12, 8, 12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          task.title,
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                            height: 1.3,
-                            color: task.completed ? muted : AppColors.text,
-                          ),
-                        ),
-                        if (subtitle.isNotEmpty)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 4),
-                            child: Text(
-                              subtitle,
-                              style: const TextStyle(
-                                color: muted,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
             if (onToggle != null)
               IconButton(
                 tooltip: task.completed
@@ -663,19 +860,87 @@ class TaskTile extends StatelessWidget {
                 constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
                 onPressed: onToggle,
                 icon: Icon(
-                  task.completed
-                      ? Icons.check_circle_rounded
-                      : Icons.radio_button_unchecked_rounded,
-                  color: task.completed ? muted : AppColors.faint,
-                  size: 24,
+                  task.completed ? Icons.check_circle_rounded : Icons.circle,
+                  color: task.completed ? muted : AppColors.overlay,
+                  size: 28,
                 ),
               ),
-            if (onToggle == null)
-              IconButton(
-                onPressed: onTap,
-                tooltip: '查看${task.title}',
-                icon: const Icon(Icons.chevron_right_rounded, color: muted),
+            Expanded(
+              child: InkWell(
+                onTap: onTap,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 56),
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      onToggle == null ? 16 : 0,
+                      8,
+                      12,
+                      8,
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                task.title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  height: 1.3,
+                                  color: task.completed
+                                      ? muted
+                                      : AppColors.text,
+                                ),
+                              ),
+                              if (subtitle.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 4),
+                                  child: Text(
+                                    subtitle,
+                                    style: const TextStyle(
+                                      color: muted,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Semantics(
+                          label: '已完成${focusCount ?? task.focusCount}个番茄钟',
+                          child: ExcludeSemantics(
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.timer_outlined,
+                                  size: 14,
+                                  color: muted,
+                                ),
+                                const SizedBox(width: 2),
+                                Text(
+                                  '${focusCount ?? task.focusCount}',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: muted,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
+            ),
           ],
         ),
       ),
@@ -790,7 +1055,20 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
           ),
           const SizedBox(height: 14),
           focusButton('top'),
-          if (!task.completed && task.date != widget.controller.today) ...[
+          if (task.space == 'work' && !task.completed)
+            TextButton.icon(
+              onPressed: () => widget.controller.toggleWaiting(task),
+              icon: Icon(
+                task.waiting
+                    ? Icons.play_arrow_rounded
+                    : Icons.hourglass_empty_rounded,
+                size: 16,
+              ),
+              label: Text(task.waiting ? '恢复待推进' : '设为等待中'),
+            ),
+          if (task.space == 'life' &&
+              !task.completed &&
+              task.date != widget.controller.today) ...[
             const SizedBox(height: 8),
             OutlinedButton.icon(
               key: const ValueKey('add-task-to-today'),
@@ -1142,7 +1420,11 @@ class TaskPickerPage extends StatelessWidget {
       ),
       const SizedBox(height: 8),
       for (final task in [...controller.pending, ...controller.completed])
-        TaskTile(task: task, onTap: () => Navigator.pop(context, task)),
+        TaskTile(
+          task: task,
+          focusCount: controller.focusCount(task),
+          onTap: () => Navigator.pop(context, task),
+        ),
     ],
   );
 }
@@ -1590,7 +1872,7 @@ class _TaskEditorPageState extends State<TaskEditorPage> {
 
   Future<void> save() async {
     if (!form.currentState!.validate()) return;
-    if (recurrence == 'weekly' && weekdays.isEmpty) {
+    if (space == 'life' && recurrence == 'weekly' && weekdays.isEmpty) {
       await explainError(context, '请选择重复的星期');
       return;
     }
@@ -1608,8 +1890,10 @@ class _TaskEditorPageState extends State<TaskEditorPage> {
           completionStandard: completionStandard.text,
           startAction: startAction.text,
           estimatedMinutes: int.tryParse(estimate.text.trim()),
-          date: date,
-          recurrence: recurrence,
+          date: space == 'work'
+              ? (widget.task?.scheduleDate ?? widget.controller.today)
+              : date,
+          recurrence: space == 'work' ? 'once' : recurrence,
           weekdays: weekdays.toList()..sort(),
           sortOrder: widget.task?.sortOrder ?? widget.controller.tasks.length,
         ),
@@ -1708,31 +1992,33 @@ class _TaskEditorPageState extends State<TaskEditorPage> {
         ),
       ),
       const SizedBox(height: 16),
-      ListTile(
-        contentPadding: EdgeInsets.zero,
-        title: const Text('日期'),
-        trailing: Text(date),
-        onTap: () async {
-          final picked = await showDatePicker(
-            context: context,
-            initialDate: DateTime.parse(date),
-            firstDate: DateTime(2020),
-            lastDate: DateTime(2100),
-          );
-          if (picked != null) setState(() => date = dayKey(picked));
-        },
-      ),
-      DropdownButtonFormField<String>(
-        initialValue: recurrence,
-        decoration: const InputDecoration(labelText: '重复'),
-        items: const [
-          DropdownMenuItem(value: 'once', child: Text('不重复')),
-          DropdownMenuItem(value: 'daily', child: Text('每天')),
-          DropdownMenuItem(value: 'weekly', child: Text('每周')),
-        ],
-        onChanged: (value) => setState(() => recurrence = value!),
-      ),
-      if (recurrence == 'weekly')
+      if (space == 'life')
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('日期'),
+          trailing: Text(date),
+          onTap: () async {
+            final picked = await showDatePicker(
+              context: context,
+              initialDate: DateTime.parse(date),
+              firstDate: DateTime(2020),
+              lastDate: DateTime(2100),
+            );
+            if (picked != null) setState(() => date = dayKey(picked));
+          },
+        ),
+      if (space == 'life')
+        DropdownButtonFormField<String>(
+          initialValue: recurrence,
+          decoration: const InputDecoration(labelText: '重复'),
+          items: const [
+            DropdownMenuItem(value: 'once', child: Text('不重复')),
+            DropdownMenuItem(value: 'daily', child: Text('每天')),
+            DropdownMenuItem(value: 'weekly', child: Text('每周')),
+          ],
+          onChanged: (value) => setState(() => recurrence = value!),
+        ),
+      if (space == 'life' && recurrence == 'weekly')
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 12),
           child: Wrap(
@@ -1927,6 +2213,7 @@ class _HistoryPageState extends State<HistoryPage> {
                     '${total ~/ 60} 分钟',
                     style: const TextStyle(
                       fontSize: 22,
+                      height: 1.2,
                       color: AppColors.text,
                       fontFeatures: [FontFeature.tabularFigures()],
                     ),
@@ -1962,24 +2249,39 @@ class _HistoryPageState extends State<HistoryPage> {
                   ),
                   if (rows.isNotEmpty)
                     SizedBox(
-                      height: 36,
-                      child: Column(
-                        children: [
-                          Text(
-                            '${rows[selected]['kind'] == 'rest'
-                                ? '休息'
-                                : rows[selected]['space'] == 'work'
-                                ? '工作'
-                                : '生活'} · ${rows[selected]['task_title']}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                          Text(
-                            '${time(rows[selected]['started_at'])}–${time(rows[selected]['ended_at'])} · 实际 ${int.parse(rows[selected]['actual_seconds'].toString()) ~/ 60} 分钟',
-                            style: const TextStyle(fontSize: 10, color: muted),
-                          ),
-                        ],
+                      height: 68,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.surface,
+                          borderRadius: BorderRadius.circular(18),
+                        ),
+                        child: Column(
+                          children: [
+                            Text(
+                              '${rows[selected]['kind'] == 'rest'
+                                  ? '休息'
+                                  : rows[selected]['space'] == 'work'
+                                  ? '工作'
+                                  : '生活'} · ${rows[selected]['task_title']}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 12, height: 1.2),
+                            ),
+                            const Spacer(),
+                            Text(
+                              '${time(rows[selected]['started_at'])}–${time(rows[selected]['ended_at'])}\n实际 ${int.parse(rows[selected]['actual_seconds'].toString()) ~/ 60} 分钟',
+                              style: const TextStyle(
+                                fontSize: 10,
+                                height: 1.2,
+                                color: muted,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                 ],
@@ -1989,6 +2291,22 @@ class _HistoryPageState extends State<HistoryPage> {
         ),
       );
     },
+  );
+}
+
+Timer? _workReminderExpiry(Map<String, dynamic>? state, VoidCallback refresh) {
+  final end = state?['end'];
+  if (state?['active'] != true ||
+      state?['autoEnd'] == false ||
+      end is! int ||
+      end <= 0) {
+    return null;
+  }
+  return Timer(
+    Duration(
+      milliseconds: math.max(0, end - DateTime.now().millisecondsSinceEpoch),
+    ),
+    refresh,
   );
 }
 
@@ -2004,6 +2322,7 @@ class _WorkModePageState extends State<WorkModePage>
   Map<String, dynamic> state = {};
   String? error;
   bool busy = false;
+  Timer? expiry;
   @override
   void initState() {
     super.initState();
@@ -2013,13 +2332,18 @@ class _WorkModePageState extends State<WorkModePage>
 
   @override
   void dispose() {
+    expiry?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState value) {
-    if (value == AppLifecycleState.resumed) call('get');
+    if (value == AppLifecycleState.resumed) {
+      call('get');
+    } else {
+      expiry?.cancel();
+    }
   }
 
   Future<void> call(String method, [Map<String, dynamic>? args]) async {
@@ -2034,24 +2358,131 @@ class _WorkModePageState extends State<WorkModePage>
         method,
         args,
       );
-      if (mounted) setState(() => state = result ?? {});
+      if (mounted) {
+        setState(() => state = result ?? {});
+        expiry?.cancel();
+        expiry = _workReminderExpiry(state, () => call('get'));
+      }
     } on PlatformException catch (e) {
       if (mounted) setState(() => error = e.message);
     } on MissingPluginException {
-      if (mounted) setState(() => error = '请在 Android 设备上使用工作模式');
+      if (mounted) setState(() => error = '请在 Android 设备上使用工作提醒');
     } finally {
       if (mounted) setState(() => busy = false);
     }
+  }
+
+  Widget reminderCard(String key, String title) {
+    final fallback = key == 'water' ? 60 : 30;
+    final interval = state[key] as int? ?? fallback;
+    final enabled = interval > 0;
+    final remembered = enabled
+        ? interval
+        : state['${key}Interval'] as int? ?? fallback;
+    return Container(
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Icon(
+                key == 'water'
+                    ? Icons.water_drop_outlined
+                    : Icons.visibility_outlined,
+                size: 18,
+                color: muted,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(title, style: const TextStyle(fontSize: 12)),
+              ),
+              SizedBox(
+                width: 36,
+                height: 32,
+                child: FittedBox(
+                  child: Switch(
+                    value: enabled,
+                    activeTrackColor: accent,
+                    activeThumbColor: Colors.black,
+                    onChanged: busy
+                        ? null
+                        : (value) => call('configure', {
+                            'water': state['water'] ?? 60,
+                            'eyes': state['eyes'] ?? 30,
+                            key: value ? remembered : 0,
+                          }),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          TextButton(
+            style: TextButton.styleFrom(
+              backgroundColor: AppColors.overlay,
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              minimumSize: const Size.fromHeight(32),
+              shape: const StadiumBorder(),
+            ),
+            onPressed: busy || !enabled
+                ? null
+                : () async {
+                    final value = await Navigator.push<int>(
+                      context,
+                      appRoute(
+                        context,
+                        builder: (_) =>
+                            IntervalPage(title: title, initial: remembered),
+                      ),
+                    );
+                    if (value != null && mounted) {
+                      call('configure', {
+                        'water': state['water'] ?? 60,
+                        'eyes': state['eyes'] ?? 30,
+                        key: value,
+                      });
+                    }
+                  },
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '提醒间隔',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: enabled ? muted : AppColors.faint,
+                    ),
+                  ),
+                ),
+                Text(
+                  '每 $remembered 分钟',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: enabled ? AppColors.text : AppColors.faint,
+                  ),
+                ),
+                const Icon(Icons.expand_more_rounded, size: 14),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) => AppPage(
     isRound: ScreenShape.of(context),
     children: [
-      backHeader(context, '工作模式'),
+      backHeader(context, '工作提醒'),
       Center(
         child: Text(
-          state['active'] == true ? '工作中' : '尚未开始工作',
+          state['active'] == true ? '提醒已开启' : '提醒已关闭',
           style: const TextStyle(color: AppColors.muted),
         ),
       ),
@@ -2060,74 +2491,22 @@ class _WorkModePageState extends State<WorkModePage>
         onPressed: busy
             ? null
             : () => call(state['active'] == true ? 'stop' : 'start'),
-        child: Text(state['active'] == true ? '结束工作' : '开始工作'),
+        child: Text(state['active'] == true ? '关闭提醒' : '开启提醒'),
       ),
-      if (state['active'] == true && state['started'] != null)
-        Text(
-          '已工作 ${DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(state['started'] as int)).inMinutes} 分钟',
-          textAlign: TextAlign.center,
-          style: const TextStyle(color: muted, fontSize: 12),
-        ),
       const SizedBox(height: 16),
       const Text(
         '休息提醒',
         textAlign: TextAlign.center,
         style: TextStyle(color: muted, fontSize: 12),
       ),
-      for (final entry in {'water': '喝水', 'eyes': '远眺休息'}.entries)
-        Column(
-          children: [
-            SwitchListTile.adaptive(
-              contentPadding: EdgeInsets.zero,
-              title: Text(entry.value, style: const TextStyle(fontSize: 14)),
-              value:
-                  (state[entry.key] as int? ??
-                      (entry.key == 'water' ? 60 : 30)) >
-                  0,
-              onChanged: busy
-                  ? null
-                  : (enabled) => call('configure', {
-                      'water': state['water'] ?? 60,
-                      'eyes': state['eyes'] ?? 30,
-                      entry.key: enabled ? (entry.key == 'water' ? 60 : 30) : 0,
-                    }),
-            ),
-            if ((state[entry.key] as int? ?? 30) > 0)
-              TextButton(
-                onPressed: busy
-                    ? null
-                    : () async {
-                        final value = await Navigator.push<int>(
-                          context,
-                          appRoute(
-                            context,
-                            builder: (_) => IntervalPage(
-                              title: entry.value,
-                              initial: state[entry.key] as int? ?? 30,
-                            ),
-                          ),
-                        );
-                        if (value != null && mounted) {
-                          call('configure', {
-                            'water': state['water'] ?? 60,
-                            'eyes': state['eyes'] ?? 30,
-                            entry.key: value,
-                          });
-                        }
-                      },
-                child: Text(
-                  '每 ${state[entry.key] ?? 30} 分钟  ›',
-                  style: const TextStyle(color: muted),
-                ),
-              ),
-          ],
-        ),
+      for (final entry in {'water': '喝水提醒', 'eyes': '远眺提醒'}.entries)
+        reminderCard(entry.key, entry.value),
       const SizedBox(height: 8),
       const Divider(color: AppColors.overlay),
       const Padding(
         padding: EdgeInsets.symmetric(vertical: 8),
         child: Text(
-          '工作时段',
+          '提醒时段',
           textAlign: TextAlign.center,
           style: TextStyle(color: muted, fontSize: 12),
         ),
@@ -2137,7 +2516,7 @@ class _WorkModePageState extends State<WorkModePage>
         'lunchEnd': '午休结束',
         'dinnerStart': '晚休开始',
         'dinnerEnd': '晚休结束',
-        'endMinute': '自动结束时间',
+        'endMinute': '自动关闭时间',
       }.entries)
         TextButton(
           onPressed: busy
@@ -2191,7 +2570,7 @@ class _WorkModePageState extends State<WorkModePage>
         ),
       SwitchListTile.adaptive(
         contentPadding: EdgeInsets.zero,
-        title: const Text('自动结束工作', style: TextStyle(fontSize: 13)),
+        title: const Text('自动关闭提醒', style: TextStyle(fontSize: 13)),
         value: state['autoEnd'] != false,
         onChanged: busy
             ? null
@@ -2276,63 +2655,185 @@ class WorkSummary extends StatefulWidget {
   State<WorkSummary> createState() => _WorkSummaryState();
 }
 
-class _WorkSummaryState extends State<WorkSummary> {
+class _WorkSummaryState extends State<WorkSummary> with WidgetsBindingObserver {
   static const channel = MethodChannel('life_assistant/work');
   bool active = false, busy = false;
+  int revision = 0;
+  Timer? expiry;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     read();
   }
 
-  Future<void> read() async {
-    try {
-      final value = await channel.invokeMapMethod<String, dynamic>('get');
-      if (mounted) setState(() => active = value?['active'] == true);
-    } on PlatformException {
-      /* State can be re-read when opening settings. */
-    } on MissingPluginException {
-      /* Desktop preview. */
+  @override
+  void dispose() {
+    expiry?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState value) {
+    if (value == AppLifecycleState.resumed) {
+      read();
+    } else {
+      expiry?.cancel();
     }
   }
 
-  Future<void> toggle() async {
+  void update(Map<String, dynamic>? value) {
+    if (!mounted) return;
+    expiry?.cancel();
+    setState(() {
+      active = value?['active'] == true;
+    });
+    expiry = _workReminderExpiry(value, read);
+  }
+
+  Future<void> read() async {
+    if (busy) return;
+    final request = ++revision;
+    try {
+      final value = await channel.invokeMapMethod<String, dynamic>('get');
+      if (request == revision && !busy) update(value);
+    } on PlatformException {
+      /* Retry on the next tap or resume. */
+    } on MissingPluginException {
+      /* Settings remain available in desktop previews. */
+    }
+  }
+
+  Future<void> settings() async {
+    if (busy) return;
+    ScaffoldMessenger.of(context).clearSnackBars();
+    await Navigator.push(
+      context,
+      appRoute(context, builder: (_) => const WorkModePage()),
+    );
+    if (mounted) await read();
+  }
+
+  Future<void> setActive(bool? requested) async {
+    if (busy) return;
+    ++revision;
     setState(() => busy = true);
     try {
-      if (!active) await channel.invokeMethod('permissions');
-      await channel.invokeMethod(active ? 'stop' : 'start');
-      await read();
-    } on PlatformException catch (e) {
-      if (mounted) showNotice(context, e.message ?? '暂时无法切换工作状态');
+      // Re-read before toggling so an automatic close cannot become a stale stop.
+      if (requested == null) {
+        update(await channel.invokeMapMethod<String, dynamic>('get'));
+        if (!mounted) return;
+      }
+      final enabled = requested ?? !active;
+      if (enabled) await channel.invokeMethod('permissions');
+      final value = await channel.invokeMapMethod<String, dynamic>(
+        enabled ? 'start' : 'stop',
+      );
+      update(value);
+      if (!mounted) return;
+      if (active != enabled) {
+        showNotice(context, enabled ? '提醒未能开启，请检查系统权限' : '提醒未能关闭，请重试');
+        return;
+      }
+      TouchHaptics.selectionClick();
+      showNotice(
+        context,
+        enabled ? '工作提醒已开启' : '工作提醒已关闭',
+        action: SnackBarAction(
+          label: enabled ? '设置' : '撤销',
+          onPressed: () {
+            if (!mounted) return;
+            if (enabled) {
+              settings();
+            } else {
+              setActive(true);
+            }
+          },
+        ),
+      );
+    } on PlatformException catch (error) {
+      if (mounted) await explainError(context, error.message ?? '暂时无法更改工作提醒');
+    } on MissingPluginException {
+      if (mounted) showNotice(context, '请在 Android 设备上使用工作提醒');
     } finally {
       if (mounted) setState(() => busy = false);
     }
   }
 
   @override
-  Widget build(BuildContext context) => Row(
-    mainAxisAlignment: MainAxisAlignment.center,
-    children: [
-      Flexible(
-        child: TextButton(
-          onPressed: busy ? null : toggle,
-          child: Text(
-            active ? '结束工作' : '开始工作',
-            style: const TextStyle(fontSize: 12, color: AppColors.muted),
+  Widget build(BuildContext context) => Semantics(
+    toggled: active,
+    child: IconButton(
+      key: const ValueKey('work-reminder-toggle'),
+      tooltip: active ? '关闭工作提醒' : '开启工作提醒',
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+      style: IconButton.styleFrom(
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+      icon: Icon(
+        active ? Icons.notifications_rounded : Icons.notifications_none_rounded,
+        size: 16,
+        color: active ? AppColors.text : muted,
+      ),
+      onPressed: busy ? null : () => setActive(null),
+      onLongPress: busy ? null : settings,
+    ),
+  );
+}
+
+String workWeekLabel(String today) {
+  final date = DateTime.parse(today);
+  final start = date.subtract(Duration(days: date.weekday - 1));
+  final end = start.add(const Duration(days: 6));
+  return '本周 ${start.month}.${start.day}–${end.month}.${end.day}';
+}
+
+class WorkTaskHistoryPage extends StatelessWidget {
+  const WorkTaskHistoryPage({
+    super.key,
+    required this.controller,
+    required this.isRound,
+  });
+  final AppController controller;
+  final bool isRound;
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: controller,
+    builder: (context, _) => AppPage(
+      isRound: isRound,
+      children: [
+        backHeader(context, '工作完成记录'),
+        if (controller.workHistory.isEmpty)
+          const Center(
+            child: Text('暂无完成记录', style: TextStyle(color: muted)),
           ),
-        ),
-      ),
-      IconButton(
-        tooltip: '工作提醒设置',
-        icon: const Icon(Icons.tune_rounded, size: 18, color: AppColors.muted),
-        onPressed: () async {
-          await Navigator.push(
-            context,
-            appRoute(context, builder: (_) => const WorkModePage()),
-          );
-          if (mounted) read();
-        },
-      ),
-    ],
+        for (final task in controller.workHistory)
+          ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+            title: Text(task.title),
+            subtitle: Text(
+              dayKey(
+                chinaNow(
+                  DateTime.parse('${task.completedAt!.replaceAll('Z', '')}Z'),
+                ),
+              ),
+            ),
+            onTap: () => Navigator.push(
+              context,
+              appRoute<void>(
+                context,
+                builder: (_) => TaskDetailPage(
+                  controller: controller,
+                  task: task,
+                  isRound: isRound,
+                ),
+              ),
+            ),
+          ),
+      ],
+    ),
   );
 }

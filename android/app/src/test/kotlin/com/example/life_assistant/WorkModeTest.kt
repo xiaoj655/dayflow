@@ -31,6 +31,32 @@ class WorkModeTest {
         assertEquals(90,createWork().snapshot()["water"])
         assertEquals(false,work.snapshot()["active"])
     }
+    @Test fun disabledIntervalsSurviveRecreationAndRestore() {
+        val work = createWork()
+        work.handle("configure", mapOf("water" to 45, "eyes" to 75))
+        work.handle("configure", mapOf("water" to 0, "eyes" to 0))
+        val saved = createWork().snapshot()
+        assertEquals(45, saved["waterInterval"])
+        assertEquals(75, saved["eyesInterval"])
+        assertEquals(0, saved["water"])
+        work.handle("configure", mapOf("water" to saved["waterInterval"]!!, "eyes" to saved["eyesInterval"]!!))
+        assertEquals(45, createWork().snapshot()["water"])
+        assertEquals(75, createWork().snapshot()["eyes"])
+    }
+    @Test fun statusNotificationDescribesRemindersAndConfiguredCloseTime() {
+        val work = createWork()
+        work.handle("rules", mapOf("lunchStart" to 720, "lunchEnd" to 840, "endMinute" to 1200, "autoEnd" to true))
+        val state = work.handle("start", emptyMap<Any, Any>())
+        assertEquals(Instant.parse("2026-11-08T12:00:00Z").toEpochMilli(), state["end"])
+        val notifications = org.robolectric.Shadows.shadowOf(context.getSystemService(android.app.NotificationManager::class.java))
+        assertEquals("工作提醒已开启", notifications.getNotification(82).extras.getCharSequence(android.app.Notification.EXTRA_TITLE).toString())
+        assertEquals("20:00 自动关闭", notifications.getNotification(82).extras.getCharSequence(android.app.Notification.EXTRA_TEXT).toString())
+        work.handle("rules", mapOf("lunchStart" to 720, "lunchEnd" to 840, "endMinute" to 1200, "autoEnd" to false))
+        assertEquals("喝水、远眺提醒", notifications.getNotification(82).extras.getCharSequence(android.app.Notification.EXTRA_TEXT).toString())
+        work.stop()
+        assertEquals(0L, work.snapshot()["end"])
+        assertNull(notifications.getNotification(82))
+    }
     @Test fun workExpiresAtTenAndDoesNotRestartNextDay() {
         val work=createWork()
         assertEquals(true,work.handle("start",emptyMap<Any,Any>())["active"])

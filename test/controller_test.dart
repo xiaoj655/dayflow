@@ -7,6 +7,16 @@ import 'package:life_assistant/models/task.dart';
 
 import 'fakes.dart';
 
+class _FailFetchAfterUploadRepository extends FakeRepository {
+  bool failFetch = false;
+
+  @override
+  Future<List<DailyTask>> fetchDay(String date) {
+    if (failFetch) throw StateError('fetch offline after successful upload');
+    return super.fetchDay(date);
+  }
+}
+
 void main() {
   test('Spaces isolate tasks and completion and survive reopening', () async {
     final store = MemoryStore();
@@ -40,6 +50,51 @@ void main() {
     expect(restored.space, 'life');
     await restored.selectSpace('work');
     expect(restored.completed.single.id, 'work');
+    app.dispose();
+    restored.dispose();
+  });
+
+  test('Work pool crosses weeks, preserves waiting offline and keeps completion history', () async {
+    final repo = FakeRepository(),
+        store = MemoryStore(),
+        engine = FakeFocusEngine();
+    var now = DateTime.utc(2026, 11, 15, 15, 59);
+    AppController create() => AppController(
+      repository: repo,
+      store: store,
+      engine: engine,
+      clock: () => now,
+    );
+    final app = create();
+    await app.initialize();
+    final task = DailyTask(
+      id: 'persistent',
+      templateId: 'persistent',
+      date: '2026-10-01',
+      title: '跨周工作',
+      content: '推进',
+      space: 'work',
+    );
+    app.tasks = [task];
+    repo.fail = true;
+    await app.selectSpace('work');
+    await app.toggleWaiting(task);
+    await app.refresh();
+    final restored = create();
+    await restored.initialize();
+    expect(restored.pending.single.waiting, true);
+    await restored.toggle(restored.pending.single);
+    await restored.refresh();
+    expect(restored.completed.single.id, task.id);
+    now = now.add(const Duration(minutes: 2)); // Monday 00:01 Shanghai.
+    expect(restored.completed, isEmpty);
+    expect(restored.workHistory.single.id, task.id);
+    await restored.toggle(restored.workHistory.single);
+    await restored.refresh();
+    expect(restored.pending.single.id, task.id);
+    expect(restored.pending.single.waiting, true);
+    await restored.selectDate(DateTime(2026, 10, 20));
+    expect(restored.pending.single.id, task.id);
     app.dispose();
     restored.dispose();
   });
@@ -120,14 +175,58 @@ void main() {
     await app.refresh();
     expect(engine.records, isEmpty);
     expect(repo.sessions, isEmpty);
+    expect(app.focusCount(app.tasks.first), 1);
     app.dispose();
-    repo.fail = false;
     app = create();
     await app.initialize();
+    expect(app.focusCount(app.tasks.first), 1);
+    repo.fail = false;
     await app.refresh();
     await app.refresh();
     expect(repo.sessions.length, 1);
     expect(repo.sessions.values.single['status'], 'completed');
+    expect(app.focusCount(app.tasks.first), 1);
+    await app.toggle(app.tasks.first);
+    await app.refresh();
+    expect(app.focusCount(app.tasks.first), 1);
+    await app.selectDate(DateTime.parse(app.date).add(const Duration(days: 1)));
+    expect(app.focusCount(app.tasks.first), 0);
+    app.dispose();
+  });
+  test('Pomodoro counts survive a failed fetch after upload and exclude rest and interruptions', () async {
+    final repo = _FailFetchAfterUploadRepository();
+    final store = MemoryStore();
+    final engine = FakeFocusEngine();
+    AppController create() =>
+        AppController(repository: repo, store: store, engine: engine);
+    var app = create();
+    await app.initialize();
+    await app.refresh();
+    final task = app.tasks.first;
+    await app.start(task, 5);
+    engine.elapse(const Duration(minutes: 5));
+    repo.failFetch = true;
+    await app.refreshFocus();
+    await app.refresh();
+    expect(repo.sessions.length, 1);
+    expect(app.focusCount(app.tasks.first), 1);
+    app.dispose();
+    app = create();
+    await app.initialize();
+    expect(app.focusCount(app.tasks.first), 1);
+    repo.failFetch = false;
+    await app.refresh();
+    expect(app.focusCount(app.tasks.first), 1);
+    await app.start(task, 5, rest: true);
+    engine.elapse(const Duration(minutes: 5));
+    await app.refreshFocus();
+    await app.refresh();
+    await app.start(task, 5);
+    engine.elapse(const Duration(minutes: 3));
+    await app.focusAction('stop');
+    await app.refresh();
+    expect(repo.sessions.length, 3);
+    expect(app.focusCount(app.tasks.first), 1);
     app.dispose();
   });
   test('Short focus is acknowledged but never cached or uploaded', () async {

@@ -67,3 +67,7 @@ __pycache__/
 *.key
 *.apk
 *.aab
+
+# Device fonts are local-only; keep source and setup instructions.
+/test/screenshots/fonts/*
+!/test/screenshots/fonts/README.md

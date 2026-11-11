@@ -32,10 +32,12 @@ class DailyTask {
     this.completedAt,
     this.carriedFromDate,
     this.space = 'life',
+    this.waiting = false,
     this.sortOrder = 0,
     this.recurrence = 'once',
     this.weekdays = const [],
     this.scheduleDate,
+    this.focusCount = 0,
   });
   final String id, templateId, date, title, content, recurrence;
   final String? tutorial, completedAt, scheduleDate, carriedFromDate;
@@ -43,7 +45,9 @@ class DailyTask {
   final int? estimatedMinutes;
   final List<int> weekdays;
   final String space;
+  final bool waiting;
   final int sortOrder;
+  final int focusCount;
   bool get completed => completedAt != null;
   DailyTask withCompletion(String? value) => DailyTask(
     id: id,
@@ -60,11 +64,15 @@ class DailyTask {
     completedAt: value,
     carriedFromDate: carriedFromDate,
     space: space,
+    waiting: waiting,
     sortOrder: sortOrder,
     recurrence: recurrence,
     weekdays: weekdays,
     scheduleDate: scheduleDate,
+    focusCount: focusCount,
   );
+  DailyTask withWaiting(bool value) =>
+      DailyTask.fromJson({...toJson(), 'waiting': value ? 1 : 0});
   Map<String, dynamic> toJson() => {
     'id': id,
     'template_id': templateId,
@@ -78,12 +86,14 @@ class DailyTask {
     'start_action': startAction,
     'estimated_minutes': estimatedMinutes,
     'completed_at': completedAt,
+    'waiting': waiting ? 1 : 0,
     'carried_from_date': carriedFromDate,
     'space': space,
     'sort_order': sortOrder,
     'recurrence': recurrence,
     'weekdays': weekdays.join(','),
     'schedule_start_date': scheduleDate,
+    'focus_count': focusCount,
   };
   factory DailyTask.fromJson(Map<String, dynamic> data) => DailyTask(
     id: data['id'] as String,
@@ -98,6 +108,7 @@ class DailyTask {
     startAction: data['start_action'] as String?,
     estimatedMinutes: int.tryParse('${data['estimated_minutes'] ?? ''}'),
     completedAt: data['completed_at'] as String?,
+    waiting: '${data['waiting'] ?? 0}' == '1',
     carriedFromDate: data['carried_from_date']?.toString().substring(0, 10),
     space: data['space'] as String? ?? 'life',
     sortOrder: int.parse('${data['sort_order'] ?? 0}'),
@@ -108,6 +119,7 @@ class DailyTask {
         .map(int.parse)
         .toList(),
     scheduleDate: data['schedule_start_date']?.toString().substring(0, 10),
+    focusCount: int.tryParse('${data['focus_count'] ?? 0}') ?? 0,
   );
 }
 

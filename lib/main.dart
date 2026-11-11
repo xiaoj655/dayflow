@@ -136,7 +136,10 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       dialogTheme: const DialogThemeData(backgroundColor: AppColors.overlay),
       snackBarTheme: const SnackBarThemeData(
         backgroundColor: AppColors.overlay,
-        contentTextStyle: TextStyle(color: AppColors.text),
+        contentTextStyle: TextStyle(
+          fontFamily: 'Roboto',
+          color: AppColors.text,
+        ),
       ),
       brightness: Brightness.dark,
       scaffoldBackgroundColor: AppColors.background,
@@ -188,7 +191,11 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           minimumSize: const Size(48, 48),
           shape: const StadiumBorder(),
-          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+          textStyle: const TextStyle(
+            fontFamily: 'Roboto',
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(

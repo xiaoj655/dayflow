@@ -13,30 +13,91 @@ import tempfile
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
-FONT_COMMIT = 'a85815a42757630ce188fdad368c2dfc444d4773'
-FONT_URL = (f'https://raw.githubusercontent.com/google/fonts/{FONT_COMMIT}/'
+FONT_SHA256 = '0356e26c35740d2f5802f9f0c033a8a1d0baf1c70a12ad42c3d51c3ff7e707e9'
+FALLBACK_FONT_COMMIT = 'a85815a42757630ce188fdad368c2dfc444d4773'
+FALLBACK_FONT_URL = (f'https://raw.githubusercontent.com/google/fonts/{FALLBACK_FONT_COMMIT}/'
             'ofl/notosanssc/NotoSansSC%5Bwght%5D.ttf')
-FONT_SHA256 = 'a3041811a78c361b1de50f953c805e0244951c21c5bd412f7232ef0d899af0da'
-PAGES = (('tasks', '每日任务'), ('calendar', '日期日历'),
-         ('task-detail', '任务详情'), ('focus-setup', '专注设置'),
-         ('focus-running', '专注计时'), ('focus-finished', '专注结束'))
+FALLBACK_FONT_SHA256 = 'a3041811a78c361b1de50f953c805e0244951c21c5bd412f7232ef0d899af0da'
+# /system/etc/fonts.xml on Xiaomi M2505W1, sans-serif / zh-Hans.
+FONT_WEIGHTS = {100: 150, 200: 200, 300: 250, 350: 305, 400: 330,
+                500: 380, 600: 450, 700: 520, 800: 630, 900: 700}
+PAGES = (
+    ('tasks', '生活任务'),
+    ('work-tasks', '工作任务'),
+    ('tasks-empty', '空任务'),
+    ('calendar', '日期日历'),
+    ('task-detail', '任务详情'),
+    ('task-editor', '任务编辑'),
+    ('focus-setup', '关联任务专注'),
+    ('free-focus-setup', '自由专注设置'),
+    ('task-picker', '选择关联任务'),
+    ('focus-running', '专注计时'),
+    ('focus-paused', '专注暂停'),
+    ('focus-finished', '专注结束'),
+    ('rest-running', '休息计时'),
+    ('rest-finished', '休息结束'),
+    ('analysis', '专注分析'),
+    ('analysis-empty', '空分析'),
+    ('work-mode', '工作提醒已关闭'),
+    ('work-active', '工作提醒已开启'),
+    ('work-reminders', '休息提醒设置'),
+    ('work-schedule', '提醒时段设置'),
+    ('reminder-interval', '提醒间隔'),
+    ('work-end-time', '自动关闭时间'),
+    ('work-history', '工作完成记录'),
+)
 BEGIN = '<!-- BEGIN WATCH SCREENSHOTS -->'
 END = '<!-- END WATCH SCREENSHOTS -->'
 
 
-def font_file(root):
+def fallback_font_file(root):
     cache = root / 'build/screenshots-cache/NotoSansSC.ttf'
-    if cache.exists() and hashlib.sha256(cache.read_bytes()).hexdigest() == FONT_SHA256:
+    if cache.exists() and hashlib.sha256(cache.read_bytes()).hexdigest() == FALLBACK_FONT_SHA256:
         return cache
     cache.parent.mkdir(parents=True, exist_ok=True)
-    request = urllib.request.Request(FONT_URL, headers={'User-Agent': 'Dayflow-docs'})
+    request = urllib.request.Request(FALLBACK_FONT_URL, headers={'User-Agent': 'Dayflow-docs'})
     with tempfile.TemporaryDirectory(dir=cache.parent) as directory:
         downloaded = Path(directory) / 'font.ttf'
         with urllib.request.urlopen(request, timeout=40) as response, downloaded.open('wb') as output:
             shutil.copyfileobj(response, output)
-        if hashlib.sha256(downloaded.read_bytes()).hexdigest() != FONT_SHA256:
+        if hashlib.sha256(downloaded.read_bytes()).hexdigest() != FALLBACK_FONT_SHA256:
             raise ValueError('Screenshot font checksum mismatch; cached font was not replaced')
         downloaded.replace(cache)
+    return cache
+
+
+def font_file(root):
+    source = root / 'test/screenshots/fonts/MiSansVF.ttf'
+    if not source.exists():
+        return fallback_font_file(root)
+    if hashlib.sha256(source.read_bytes()).hexdigest() != FONT_SHA256:
+        raise ValueError('Local MiSans font checksum mismatch')
+    try:
+        from fontTools.ttLib import TTFont, newTable
+        from fontTools.varLib.models import normalizeValue
+    except ImportError:
+        raise ValueError('Install screenshot dependencies: '
+                         'python3 -m pip install -r scripts/requirements-screenshots.txt') from None
+    # Expose Android's logical weights to Flutter while retaining the watch's
+    # actual outlines. MiSans has a 150/330/700 axis, not CSS's 100/400/900.
+    cache = root / 'build/screenshots-cache/MiSans-watch.ttf'
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    with TTFont(source, recalcTimestamp=False) as font:
+        axis = font['fvar'].axes[0]
+        if (axis.axisTag, axis.minValue, axis.defaultValue, axis.maxValue) != ('wght', 150, 330, 700):
+            raise ValueError('Unexpected MiSans weight axis')
+        axis.minValue, axis.defaultValue, axis.maxValue = 100, 400, 900
+        font['avar'] = newTable('avar')
+        font['avar'].segments = {'wght': {
+            normalizeValue(weight, (100, 400, 900)):
+                normalizeValue(value, (150, 330, 700))
+            for weight, value in FONT_WEIGHTS.items()
+        }}
+        # Named instances refer to the old coordinate system; screenshots use
+        # explicit FontWeight values, so they do not need named instances.
+        font['fvar'].instances = []
+        font['OS/2'].usWeightClass = 400
+        font.save(cache)
     return cache
 
 
@@ -63,7 +124,7 @@ def gallery():
     lines = [BEGIN, '## 手表界面', '',
              '以下图片由实际 Flutter 页面自动渲染，使用固定演示任务、时间和字体；'
              '尺寸为 480×480、density 320，非实机截图。', '', '<table>']
-    for offset in (0, 3):
+    for offset in range(0, len(PAGES), 3):
         lines.append('  <tr>')
         for name, title in PAGES[offset:offset + 3]:
             lines.append(f'    <td align="center"><img src="docs/screenshots/{name}.png" '
@@ -88,7 +149,7 @@ def updated_readme(original):
     return original.replace(anchor, gallery() + '\n\n' + anchor, 1)
 
 
-def validate_images(directory):
+def validate_images(directory, font=None):
     manifest = {}
     for name, _ in PAGES:
         data = (directory / f'{name}.png').read_bytes()
@@ -97,9 +158,14 @@ def validate_images(directory):
                 or data[-8:-4] != b'IEND'):
             raise ValueError(f'{name}.png is not a complete 480x480 PNG')
         manifest[f'{name}.png'] = hashlib.sha256(data).hexdigest()
+    font_metadata = ({'font': 'Noto Sans SC', 'fontSha256': FALLBACK_FONT_SHA256}
+                     if font is not None and font.name == 'NotoSansSC.ttf' else
+                     {'font': 'MiSansVF (Xiaomi M2505W1)',
+                      'fontSha256': FONT_SHA256, 'fontWeightMapping': FONT_WEIGHTS})
     return {'renderer': 'Flutter widget test', 'logicalSize': [240, 240],
             'pixelRatio': 2, 'clockUtc': '2026-11-01T02:08:00Z',
-            'fontSha256': FONT_SHA256, 'images': manifest}
+            **font_metadata,
+            'images': manifest}
 
 
 def capture(root, flutter):
@@ -116,7 +182,7 @@ def capture(root, flutter):
                 f'--dart-define=SCREENSHOT_FONT={font}',
                 f'--dart-define=SCREENSHOT_OUTPUT={stage}',
             ], cwd=root, check=True)
-        manifest = validate_images(stage)
+        manifest = validate_images(stage, font)
         destination = root / 'docs/screenshots'
         destination.mkdir(parents=True, exist_ok=True)
         for name, _ in PAGES:
@@ -124,7 +190,7 @@ def capture(root, flutter):
         (destination / 'manifest.json').write_text(
             json.dumps(manifest, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
         readme.write_text(replacement, encoding='utf-8')
-    print('Updated 6 watch screenshots and the README gallery. No database or device was used.')
+    print(f'Updated {len(PAGES)} watch screenshots and the README gallery. No database or device was used.')
 
 
 def main():

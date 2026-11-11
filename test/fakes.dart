@@ -52,7 +52,27 @@ class FakeRepository implements TaskRepository {
   @override
   Future<List<DailyTask>> fetchDay(String date) async {
     _check();
-    return List.of(days.putIfAbsent(date, () => fixtures(date)));
+    return days
+        .putIfAbsent(date, () => fixtures(date))
+        .map(
+          (task) => DailyTask.fromJson({
+            ...task.toJson(),
+            'focus_count': sessions.values
+                .where(
+                  (row) =>
+                      (row['taskId'] ?? row['task_day_id']) == task.id &&
+                      row['kind'] == 'focus' &&
+                      row['status'] == 'completed' &&
+                      (int.tryParse(
+                                '${row['actualSeconds'] ?? row['actual_seconds']}',
+                              ) ??
+                              0) >=
+                          180,
+                )
+                .length,
+          }),
+        )
+        .toList();
   }
 
   @override
@@ -82,6 +102,16 @@ class FakeRepository implements TaskRepository {
         'carried_from_date': task.date,
       }),
     );
+  }
+
+  @override
+  Future<void> setWaiting(String id, bool waiting) async {
+    _check();
+    for (final entry in days.entries.toList()) {
+      days[entry.key] = entry.value
+          .map((t) => t.id == id ? t.withWaiting(waiting) : t)
+          .toList();
+    }
   }
 
   @override

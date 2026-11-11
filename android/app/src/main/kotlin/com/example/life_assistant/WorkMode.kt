@@ -18,7 +18,7 @@ class WorkMode(private val context: Context, private val clock: () -> Long = Sys
     private fun end(): Long = prefs.getLong("end", 0)
     fun snapshot(): Map<String, Any> {
         if (end() != 0L && clock() >= end()) stop()
-        return mapOf("active" to (end() > clock()), "water" to prefs.getInt("water", 60), "eyes" to prefs.getInt("eyes", 30), "started" to prefs.getLong("started",0), "lunchStart" to prefs.getInt("lunchStart",720), "lunchEnd" to prefs.getInt("lunchEnd",840), "dinnerStart" to prefs.getInt("dinnerStart",1080), "dinnerEnd" to prefs.getInt("dinnerEnd",1140), "autoEnd" to prefs.getBoolean("autoEnd",true), "endMinute" to prefs.getInt("endMinute",1320))
+        return mapOf("active" to (end() > clock()), "end" to end(), "waterInterval" to prefs.getInt("waterInterval", prefs.getInt("water", 60).takeIf { it > 0 } ?: 60), "eyesInterval" to prefs.getInt("eyesInterval", prefs.getInt("eyes", 30).takeIf { it > 0 } ?: 30), "water" to prefs.getInt("water", 60), "eyes" to prefs.getInt("eyes", 30), "started" to prefs.getLong("started",0), "lunchStart" to prefs.getInt("lunchStart",720), "lunchEnd" to prefs.getInt("lunchEnd",840), "dinnerStart" to prefs.getInt("dinnerStart",1080), "dinnerEnd" to prefs.getInt("dinnerEnd",1140), "autoEnd" to prefs.getBoolean("autoEnd",true), "endMinute" to prefs.getInt("endMinute",1320))
     }
     fun stop() {
         context.getSystemService(NotificationManager::class.java).cancel(82)
@@ -30,7 +30,7 @@ class WorkMode(private val context: Context, private val clock: () -> Long = Sys
         when (method) {
             "start" -> {
                 val current = now()
-                check(!prefs.getBoolean("autoEnd",true) || current.get(Calendar.HOUR_OF_DAY)*60+current.get(Calendar.MINUTE) < prefs.getInt("endMinute",1320)) { "22:00 后请明天再开始工作" }
+                check(!prefs.getBoolean("autoEnd",true) || current.get(Calendar.HOUR_OF_DAY)*60+current.get(Calendar.MINUTE) < prefs.getInt("endMinute",1320)) { "已过自动关闭时间，请调整提醒时段或明天再开启" }
                 if (Build.VERSION.SDK_INT >= 33) check(context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED) { "请先允许通知权限" }
                 check(Build.VERSION.SDK_INT < 31 || alarms.canScheduleExactAlarms()) { "请先允许闹钟和提醒权限" }
                 current.set(Calendar.HOUR_OF_DAY, prefs.getInt("endMinute",1320)/60); current.set(Calendar.MINUTE, prefs.getInt("endMinute",1320)%60); current.set(Calendar.SECOND, 0); current.set(Calendar.MILLISECOND, 0)
@@ -50,7 +50,12 @@ class WorkMode(private val context: Context, private val clock: () -> Long = Sys
             "configure" -> {
                 val water = (args["water"] as Number).toInt(); val eyes = (args["eyes"] as Number).toInt()
                 require(water in 0..180 && eyes in 0..180 && water % 5 == 0 && eyes % 5 == 0)
-                check(prefs.edit().putInt("water", water).putInt("eyes", eyes).commit())
+                val editor = prefs.edit().putInt("water", water).putInt("eyes", eyes)
+                if (water > 0) editor.putInt("waterInterval", water)
+                else if (prefs.getInt("water", 60) > 0) editor.putInt("waterInterval", prefs.getInt("water", 60))
+                if (eyes > 0) editor.putInt("eyesInterval", eyes)
+                else if (prefs.getInt("eyes", 30) > 0) editor.putInt("eyesInterval", prefs.getInt("eyes", 30))
+                check(editor.commit())
                 resetDue()
             }
         }
@@ -68,10 +73,14 @@ class WorkMode(private val context: Context, private val clock: () -> Long = Sys
     fun schedule() {
         if (end() <= clock()) { stop(); return }
         val nm=context.getSystemService(NotificationManager::class.java)
-        val statusChannel=NotificationChannel("work_status","工作状态",NotificationManager.IMPORTANCE_LOW)
+        val statusChannel=NotificationChannel("work_status","工作提醒状态",NotificationManager.IMPORTANCE_LOW)
         statusChannel.setSound(null,null); statusChannel.enableVibration(false); nm.createNotificationChannel(statusChannel)
         val open=PendingIntent.getActivity(context,82,Intent(context,MainActivity::class.java),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val builder=NotificationCompat.Builder(context,"work_status").setSmallIcon(R.drawable.ic_notification).setLargeIcon(android.graphics.BitmapFactory.decodeResource(context.resources, R.mipmap.ic_launcher)).setContentTitle("工作中").setContentText("22:00 自动结束").setContentIntent(open).setOngoing(true).setOnlyAlertOnce(true)
+        val endMinute = prefs.getInt("endMinute",1320)
+        val statusText = if (prefs.getBoolean("autoEnd",true))
+            "%02d:%02d 自动关闭".format(endMinute / 60, endMinute % 60)
+        else "喝水、远眺提醒"
+        val builder=NotificationCompat.Builder(context,"work_status").setSmallIcon(R.drawable.ic_notification).setLargeIcon(android.graphics.BitmapFactory.decodeResource(context.resources, R.mipmap.ic_launcher)).setContentTitle("工作提醒已开启").setContentText(statusText).setContentIntent(open).setOngoing(true).setOnlyAlertOnce(true)
         OngoingActivity.Builder(context,82,builder).setStaticIcon(R.drawable.ic_notification).setTouchIntent(open).build().apply(context)
         try { nm.notify(82,builder.build()) } catch (_: SecurityException) { }
         val c = now()

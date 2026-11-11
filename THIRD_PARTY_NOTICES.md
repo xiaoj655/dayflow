@@ -12,7 +12,8 @@ Dayflow 的代码、文档及项目原创图标采用 [MIT License](LICENSE)。�
 | flutter_launcher_icons 0.14.4（开发工具） | MIT | [LICENSE](docs/licenses/flutter_launcher_icons.txt) |
 | PyMySQL（Hermes skill） | MIT | [LICENSE](docs/licenses/PyMySQL.txt) |
 | Gradle wrapper 9.3.1（仓库内构建工具） | Apache-2.0 | [LICENSE](docs/licenses/gradle-wrapper-LICENSE.txt)、[NOTICE](docs/licenses/gradle-wrapper-NOTICE.txt) |
-| Noto Sans SC（文档截图字体，仅下载到本地构建缓存） | SIL OFL 1.1 | [LICENSE](docs/licenses/NotoSansSC-OFL.txt) |
+| Noto Sans SC（无本地字体时使用，仅下载到构建缓存） | SIL OFL 1.1 | [LICENSE](docs/licenses/NotoSansSC-OFL.txt) |
+| MiSansVF（可选本地截图字体，取自小米手表 5；不随仓库或源码包分发） | 字体权利归小米，不适用项目 MIT | [来源说明](test/screenshots/fonts/README.md) |
 
 Flutter SDK、Material Icons、Gradle wrapper、Android 库及 Dart 间接依赖遵循各自的许可。上述表格是直接依赖清单，并非所有二进制组成部分的完整清单。Dart 依赖版本见 `pubspec.lock`；Python 依赖范围见 `skills/dayflow/requirements.txt`。升级依赖时需同步复核许可。
 

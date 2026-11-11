@@ -12,7 +12,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 ROOT_FILES = {
     '.gitignore', '.gitattributes', '.metadata', 'AGENTS.md', 'README.md', 'LICENSE',
-    'THIRD_PARTY_NOTICES.md', 'CONTRIBUTING.md', 'SECURITY.md',
+    'Makefile', 'THIRD_PARTY_NOTICES.md', 'CONTRIBUTING.md', 'SECURITY.md',
     'analysis_options.yaml', 'dart_test.yaml', 'pubspec.yaml', 'pubspec.lock',
     'dayflow-icon.png',
 }
@@ -30,6 +30,8 @@ EXCLUDED_PATTERNS = ('*.pem', '*.key', '*.keystore', '*.jks', '*.p12', '*.pfx',
 def is_public(relative):
     path = Path(relative)
     name = path.as_posix()
+    if name.startswith('test/screenshots/fonts/') and name != 'test/screenshots/fonts/README.md':
+        return False
     if name in ROOT_FILES:
         return True
     if not any(name.startswith(directory + '/') for directory in DIRECTORIES):

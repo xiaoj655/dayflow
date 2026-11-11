@@ -118,7 +118,11 @@ class _CurvedTimeTextState extends State<CurvedTimeText>
     return Semantics(
       label: '当前时间 $time',
       child: CustomPaint(
-        painter: _TimePainter(time),
+        painter: _TimePainter(
+          time,
+          Theme.of(context).textTheme.bodySmall!
+              .copyWith(fontSize: 11, color: AppColors.muted),
+        ),
         size: const Size(double.infinity, 32),
       ),
     );
@@ -126,8 +130,9 @@ class _CurvedTimeTextState extends State<CurvedTimeText>
 }
 
 class _TimePainter extends CustomPainter {
-  _TimePainter(this.text);
+  _TimePainter(this.text, this.textStyle);
   final String text;
+  final TextStyle textStyle;
   @override
   void paint(Canvas canvas, Size size) {
     final radius = size.width / 2 - 11;
@@ -135,10 +140,7 @@ class _TimePainter extends CustomPainter {
         .split('')
         .map(
           (letter) => TextPainter(
-            text: TextSpan(
-              text: letter,
-              style: const TextStyle(fontSize: 11, color: AppColors.muted),
-            ),
+            text: TextSpan(text: letter, style: textStyle),
             textDirection: TextDirection.ltr,
           )..layout(),
         )
@@ -156,11 +158,13 @@ class _TimePainter extends CustomPainter {
       p.paint(canvas, Offset(-p.width / 2, -p.height / 2));
       canvas.restore();
       advance += p.width;
+      p.dispose();
     }
   }
 
   @override
-  bool shouldRepaint(_TimePainter oldDelegate) => text != oldDelegate.text;
+  bool shouldRepaint(_TimePainter oldDelegate) =>
+      text != oldDelegate.text || textStyle != oldDelegate.textStyle;
 }
 
 /// Resolve mouse wheel input before the child Scrollable applies an instant jump.

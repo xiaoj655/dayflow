@@ -3,6 +3,7 @@ import importlib.util
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 path = Path(__file__).resolve().parents[1] / 'scripts/capture_watch_ui.py'
 spec = importlib.util.spec_from_file_location('capture_watch_ui', path)
@@ -17,6 +18,9 @@ class ScreenshotAutomationTest(unittest.TestCase):
         self.assertTrue(updated.startswith('# Dayflow\n\nMy introduction.\n\n'))
         self.assertTrue(updated.endswith('## 部署与兼容性\n\nMy deployment notes.\n'))
         self.assertEqual(updated.count(screenshots.BEGIN), 1)
+        self.assertEqual(updated.count('<img '), len(screenshots.PAGES))
+        for name, _ in screenshots.PAGES:
+            self.assertIn(f'docs/screenshots/{name}.png', updated)
         self.assertEqual(screenshots.updated_readme(updated), updated)
         with self.assertRaises(ValueError):
             screenshots.updated_readme(updated.replace(screenshots.END, ''))
@@ -37,6 +41,20 @@ class ScreenshotAutomationTest(unittest.TestCase):
                     self.assertEqual(target.read_text(), 'example configuration')
                     raise RuntimeError('Renderer failed')
             self.assertFalse(target.exists())
+
+    def test_missing_local_font_uses_public_fallback_and_invalid_font_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fallback = root / 'build/screenshots-cache/NotoSansSC.ttf'
+            with patch.object(screenshots, 'fallback_font_file', return_value=fallback) as load:
+                self.assertEqual(screenshots.font_file(root), fallback)
+                load.assert_called_once_with(root)
+                source = root / 'test/screenshots/fonts/MiSansVF.ttf'
+                source.parent.mkdir(parents=True)
+                source.write_bytes(b'invalid font')
+                with self.assertRaisesRegex(ValueError, 'checksum mismatch'):
+                    screenshots.font_file(root)
+                load.assert_called_once()
 
     def test_incomplete_capture_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -75,6 +75,152 @@ Future<void> reveal(WidgetTester tester, Finder finder) async {
 }
 
 void main() {
+  for (final diameter in [192.0, 240.0]) {
+    testWidgets(
+      'Compact home exposes the first task and left completion at $diameter dp',
+      (tester) async {
+        final repo = FakeRepository();
+        const date = '2026-11-09';
+        repo.days[date] = [
+          ...fixtures(date),
+          const DailyTask(
+            id: 'work',
+            templateId: 'work',
+            date: date,
+            title: '设计系统审查',
+            content: '确认设计',
+            space: 'work',
+          ),
+        ];
+        for (var i = 0; i < 2; i++) {
+          repo.sessions['tomato-$i'] = {
+            'id': 'tomato-$i',
+            'task_day_id': 'observe:$date',
+            'kind': 'focus',
+            'status': 'completed',
+            'actual_seconds': 1500,
+          };
+        }
+        final app = await configure(
+          tester,
+          diameter: diameter,
+          repository: repo,
+        );
+        for (final space in ['life', 'work']) {
+          await app.selectSpace(space);
+          await tester.pumpAndSettle();
+          final title = space == 'life' ? '街头观察' : '设计系统审查';
+          final tile = find.ancestor(
+            of: find.text(title),
+            matching: find.byType(TaskTile),
+          );
+          final toggle = find.byTooltip('完成$title');
+          final counter = find
+              .descendant(of: tile, matching: find.byType(Semantics))
+              .evaluate()
+              .map((element) => element.widget as Semantics)
+              .singleWhere(
+                (widget) => widget.properties.label?.startsWith('已完成') == true,
+              );
+          expect(counter.properties.label, '已完成${space == 'life' ? 2 : 0}个番茄钟');
+          expect(toggle.hitTestable(), findsOneWidget);
+          expect(
+            tester.getCenter(toggle).dx,
+            lessThan(tester.getCenter(find.text(title)).dx),
+          );
+          expect(tester.getBottomRight(tile).dy, lessThan(diameter - 12));
+          expect(listController(tester).offset, 0);
+          await tester.tap(toggle);
+          await tester.pumpAndSettle();
+          expect(app.completed.single.title, title);
+          await tester.tap(find.text('撤销'));
+          await tester.pumpAndSettle();
+          expect(app.completed, isEmpty);
+          expect(tester.takeException(), isNull);
+        }
+        final bell = find.byKey(const ValueKey('work-reminder-toggle'));
+        await tester.longPress(bell);
+        await tester.pumpAndSettle();
+        expect(find.text('开启提醒'), findsOneWidget);
+      },
+    );
+    testWidgets('Single timeline selects sessions with crown at $diameter dp', (
+      tester,
+    ) async {
+      final repo = FakeRepository();
+      for (var i = 0; i < 2; i++) {
+        repo.sessions['session-$i'] = {
+          'id': 'session-$i',
+          'space': i == 0 ? 'work' : 'life',
+          'kind': 'focus',
+          'task_title': '专注记录$i',
+          'actual_seconds': 900,
+          'started_at': '2026-11-09 0${i + 1}:00:00',
+          'ended_at': '2026-11-09 0${i + 1}:30:00',
+        };
+      }
+      final app = await configure(tester, diameter: diameter, repository: repo);
+      Navigator.of(tester.element(find.byType(TaskListPage))).push(
+        MaterialPageRoute<void>(builder: (_) => HistoryPage(controller: app)),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('工作 · 专注记录0'), findsOneWidget);
+      await rotary(tester, 40);
+      await tester.pumpAndSettle();
+      expect(find.text('生活 · 专注记录1'), findsOneWidget);
+      await rotary(tester, 400);
+      expect(find.text('生活 · 专注记录1'), findsOneWidget);
+      await rotary(tester, -40);
+      expect(find.text('工作 · 专注记录0'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+    testWidgets(
+      'Reminder cards fit and retain disabled interval at $diameter dp',
+      (tester) async {
+        const channel = MethodChannel('life_assistant/work');
+        final state = <String, dynamic>{
+          'active': false,
+          'water': 0,
+          'eyes': 30,
+          'waterInterval': 45,
+        };
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          channel,
+          (call) async {
+            if (call.method == 'configure') {
+              state.addAll(Map<String, dynamic>.from(call.arguments as Map));
+            }
+            return state;
+          },
+        );
+        addTearDown(
+          () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+            channel,
+            null,
+          ),
+        );
+        await configure(tester, diameter: diameter);
+        Navigator.of(
+          tester.element(find.byType(TaskListPage)),
+        ).push(MaterialPageRoute<void>(builder: (_) => const WorkModePage()));
+        await tester.pumpAndSettle();
+        await reveal(tester, find.text('喝水提醒'));
+        expect(find.text('每 45 分钟'), findsOneWidget);
+        final interval = tester.widget<TextButton>(
+          find.ancestor(
+            of: find.text('每 45 分钟'),
+            matching: find.byType(TextButton),
+          ),
+        );
+        expect(interval.onPressed, isNull);
+        await tester.tap(find.byType(Switch).first);
+        await tester.pumpAndSettle();
+        expect(state['water'], 45);
+        await reveal(tester, find.text('远眺提醒'));
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
   for (final diameter in [192.0, 200.0, 240.0, 360.0]) {
     testWidgets(
       'Round ${diameter}dp fills circle and scales edge cards without changing list geometry',
@@ -558,7 +704,9 @@ void main() {
         expect(
           find.descendant(
             of: find.byKey(const ValueKey('task-date-selector')),
-            matching: find.text(days == 1 ? '明天' : '后天'),
+            matching: find.text(
+              '${today.add(Duration(days: days)).month}月${today.add(Duration(days: days)).day}日',
+            ),
           ),
           findsOneWidget,
         );
@@ -568,7 +716,7 @@ void main() {
       await tester.dragFrom(const Offset(4, 120), const Offset(130, 0));
       await tester.pumpAndSettle();
       expect(app.date, dayKey(today.add(const Duration(days: 1))));
-      await tester.tap(find.text('回到今天'));
+      await tester.tap(find.byTooltip('回到今天'));
       await tester.pumpAndSettle();
       expect(app.date, app.today);
       expect(tester.takeException(), isNull);

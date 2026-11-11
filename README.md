@@ -15,6 +15,61 @@ Flutter 原生 Android 应用，手表执行任务、专注计时，手机编辑
 - Android 使用持久化计时状态和系统精确闹钟，独立于 Flutter 页面；支持熄屏、后台及重启后恢复。需允许系统闹钟/提醒和通知权限，遵循系统勿扰设置。
 - 本地缓存任务和待同步的完成状态、专注记录；联网后重放，专注记录按会话 ID 去重。
 
+<!-- BEGIN WATCH SCREENSHOTS -->
+## 手表界面
+
+以下图片由实际 Flutter 页面自动渲染，使用固定演示任务、时间和字体；尺寸为 480×480、density 320，非实机截图。
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/screenshots/tasks.png" width="200" height="200" alt="生活任务"><br>生活任务</td>
+    <td align="center"><img src="docs/screenshots/work-tasks.png" width="200" height="200" alt="工作任务"><br>工作任务</td>
+    <td align="center"><img src="docs/screenshots/tasks-empty.png" width="200" height="200" alt="空任务"><br>空任务</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/calendar.png" width="200" height="200" alt="日期日历"><br>日期日历</td>
+    <td align="center"><img src="docs/screenshots/task-detail.png" width="200" height="200" alt="任务详情"><br>任务详情</td>
+    <td align="center"><img src="docs/screenshots/task-editor.png" width="200" height="200" alt="任务编辑"><br>任务编辑</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/focus-setup.png" width="200" height="200" alt="关联任务专注"><br>关联任务专注</td>
+    <td align="center"><img src="docs/screenshots/free-focus-setup.png" width="200" height="200" alt="自由专注设置"><br>自由专注设置</td>
+    <td align="center"><img src="docs/screenshots/task-picker.png" width="200" height="200" alt="选择关联任务"><br>选择关联任务</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/focus-running.png" width="200" height="200" alt="专注计时"><br>专注计时</td>
+    <td align="center"><img src="docs/screenshots/focus-paused.png" width="200" height="200" alt="专注暂停"><br>专注暂停</td>
+    <td align="center"><img src="docs/screenshots/focus-finished.png" width="200" height="200" alt="专注结束"><br>专注结束</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/rest-running.png" width="200" height="200" alt="休息计时"><br>休息计时</td>
+    <td align="center"><img src="docs/screenshots/rest-finished.png" width="200" height="200" alt="休息结束"><br>休息结束</td>
+    <td align="center"><img src="docs/screenshots/analysis.png" width="200" height="200" alt="专注分析"><br>专注分析</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/analysis-empty.png" width="200" height="200" alt="空分析"><br>空分析</td>
+    <td align="center"><img src="docs/screenshots/work-mode.png" width="200" height="200" alt="工作提醒已关闭"><br>工作提醒已关闭</td>
+    <td align="center"><img src="docs/screenshots/work-active.png" width="200" height="200" alt="工作提醒已开启"><br>工作提醒已开启</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/work-reminders.png" width="200" height="200" alt="休息提醒设置"><br>休息提醒设置</td>
+    <td align="center"><img src="docs/screenshots/work-schedule.png" width="200" height="200" alt="提醒时段设置"><br>提醒时段设置</td>
+    <td align="center"><img src="docs/screenshots/reminder-interval.png" width="200" height="200" alt="提醒间隔"><br>提醒间隔</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/work-end-time.png" width="200" height="200" alt="自动关闭时间"><br>自动关闭时间</td>
+    <td align="center"><img src="docs/screenshots/work-history.png" width="200" height="200" alt="工作完成记录"><br>工作完成记录</td>
+  </tr>
+</table>
+
+更新全部图片与此区块：
+
+```bash
+python3 scripts/capture_watch_ui.py
+```
+
+<!-- END WATCH SCREENSHOTS -->
+
 ## 部署与兼容性
 
 对外名称为 Dayflow。内部 Flutter 包名 `life_assistant`、Android 包名 `com.example.life_assistant` 保留，已有安装和数据库无需因改名迁移。Hermes skill 使用 `skills/dayflow/`，命令为 `/dayflow`。
@@ -33,6 +88,8 @@ flutter analyze
 flutter test --exclude-tags=database
 flutter build apk --release --target-platform android-arm,android-arm64
 ```
+
+常用操作已收进 `Makefile`，`make help` 查看全部目标。`make check` 运行离线回归，`make build` 构建双架构 release APK，`make deploy DEVICE=<设备地址>` 构建并安装，`make screenshots` 更新手表截图；已安装 `dayflow-build.slice` 时构建自动套用内存限制。
 
 验证环境为 Flutter 3.47.8 / Dart 3.13.7、JDK 21。首次使用需要先创建数据库和导入表结构；应用不会自动建表或插入示例任务。
 
@@ -75,12 +132,16 @@ python3 scripts/export_source.py
 此工作目录可能保留个人配置及旧构建产物，请使用导出的源码包建立公开仓库，不要把整个工作目录压缩上传。首次发布还需检查实际待提交文件；若其他仓库历史或附件泄露过凭据，应先撤销或更换。CI 会拒绝规则范围之外的已跟踪文件；增加公开文件或目录时同步更新 `scripts/export_source.py` 的清单。
 
 ## 工作空间、提醒与专注分析
-工作和生活空间分别展示任务，编辑任务可调整归属；旧数据默认属于生活。工作空间内手动开始工作模式，喝水和远眺提醒间隔可配置（默认 60 / 30 分钟，也可关闭），默认 12:00–14:00、18:00–19:00 暂停、22:00 自动结束，可在工作模式页调整。提醒通过本地系统闹钟调度，专注期间延后。专注时段按上海日期查看起止时间和实际时长，支持工作、生活及全部筛选，休息不计入专注总量。
+工作和生活空间分别展示任务，编辑任务可调整归属；旧数据默认属于生活。工作空间内手动开启工作提醒，喝水和远眺提醒间隔可配置（默认 60 / 30 分钟，也可关闭），默认 12:00–14:00、18:00–19:00 暂停、22:00 自动关闭，可在工作提醒页调整。提醒通过本地系统闹钟调度，专注期间延后。专注时段按上海日期查看起止时间和实际时长，支持工作、生活及全部筛选，休息不计入专注总量。
 
-Android 最低版本为 8.0。已有数据库升级前备份，再运行 `scripts/migrate_database.py`（使用已配置的 Python 依赖环境）；迁移仅添加缺失字段。专注和工作模式已接入持续活动通知，小米手表亮屏后停留效果待安装后实测，普通浏览无限停留尚未实现。
+首页的深灰进度胶囊用淡薄荷绿显示已完成数字与进度条，生活按所选日期统计，工作按本周任务池统计（含等待中与跨周未完成任务，不含往周完成项）。工作提醒通过本周范围旁的铃铛单击开启或关闭，长按进入设置；开启提示提供设置入口，关闭提示支持撤销。提醒独立于任务专注，不计入专注时长。任务卡片左侧可完成或撤销，右侧显示已完整结束的番茄钟次数；每次有效专注计一个，休息和提前结束不计入。生活按当天任务记录统计，工作随同一任务跨周累计，离线完成也会保留次数。
 
-界面采用紧凑的工作/生活首页、完整胶囊按钮、自由专注与关联任务、全天时间分布图及共用表冠转盘。分析页使用一屏分段时间轴，默认 06–12、12–18、18–24，凌晨有记录才显示 00–06；每行六小时，按真实起止时间绘制，点击或转表冠选择记录。不推断暂停发生的位置。午休、晚休和自动结束规则可在工作模式页调整。
+Android 最低版本为 8.0。已有数据库升级前备份，再运行 `scripts/migrate_database.py`（使用已配置的 Python 依赖环境）；迁移仅添加缺失字段。专注和工作提醒已接入持续活动通知，小米手表亮屏后停留效果待安装后实测，普通浏览无限停留尚未实现。
+
+界面采用紧凑的工作/生活首页、完整胶囊按钮、自由专注与关联任务、全天时间分布图及共用表冠转盘。分析页使用单行 00–24 时间轴，按真实起止时间绘制，点击或转表冠逐条选择记录，下方卡片展示实际时长。不推断暂停发生的位置。午休、晚休和自动关闭规则可在工作提醒页调整。
 
 ## 许可证
 
 代码、文档和项目原创图标采用 [MIT License](LICENSE)。第三方依赖保留各自许可，见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+工作首页为本周任务池：待推进、等待中、本周已完成。未完成任务跨周保留，完成记录可独立查看。顶部胶囊左生活、右工作，下方显示日期或本周范围；生活继续按天安排。提醒卡片关闭后保留间隔。新版本使用 `005_work_pool.sql` 对应的增量字段，可通过 `scripts/migrate_database.py` 幂等升级。

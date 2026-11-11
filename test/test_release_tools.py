@@ -67,7 +67,8 @@ class SourceExportTest(unittest.TestCase):
             public = ['README.md', 'config/database.example.json', 'lib/main.dart',
                       'android/gradlew', 'android/gradle/wrapper/gradle-wrapper.jar',
                       'android/app/src/debug/AndroidManifest.xml',
-                      'skills/dayflow/connection.example.json']
+                      'skills/dayflow/connection.example.json',
+                      'test/screenshots/fonts/README.md']
             private = ['config/database.json', 'skills/dayflow/connection.json',
                        'config/mysql-server.pem', 'skills/dayflow/mysql-server.pem',
                        'android/local.properties', 'android/key.properties',
@@ -75,7 +76,9 @@ class SourceExportTest(unittest.TestCase):
                        'android/app/.cxx/cache',
                        'android/app/release/app.apk', 'build/private.zip',
                        'scripts/__pycache__/cache.pyc', 'skills/dayflow/.venv/bin/python',
-                       'android/signing.jks', 'config/.env.local', '.idea/workspace.xml']
+                       'android/signing.jks', 'config/.env.local', '.idea/workspace.xml',
+                       'test/screenshots/fonts/MiSansVF.ttf',
+                       'test/screenshots/fonts/nested/copy.otf']
             for name in public + private:
                 self.write(root, name, '{}' if name.endswith('.json') else 'source')
             output = root / 'build/source.zip'

@@ -73,51 +73,81 @@ class MySqlTaskRepository implements TaskRepository {
   }
 
   @override
-  Future<List<DailyTask>> fetchDay(String date) => _connection((
-    connection,
-  ) async {
-    final weekday = DateTime.parse(date).weekday;
-    await connection.execute(
-      '''INSERT IGNORE INTO la_task_days
+  Future<List<DailyTask>> fetchDay(String date) =>
+      _connection((connection) async {
+        final weekday = DateTime.parse(date).weekday;
+        await connection.execute(
+          '''INSERT IGNORE INTO la_task_days
       (id, template_id, task_date, title, content, tutorial,
        task_value, minimum_goal, completion_standard, start_action, estimated_minutes, sort_order, space)
       SELECT CONCAT(id, ':', :date), id, :date, title, content, tutorial,
         task_value, minimum_goal, completion_standard, start_action, estimated_minutes, sort_order, space
-      FROM la_task_templates WHERE active = TRUE AND start_date <= :date
+      FROM la_task_templates WHERE space = 'life' AND active = TRUE AND start_date <= :date
       AND ((recurrence = 'once' AND start_date = :date) OR recurrence = 'daily'
         OR (recurrence = 'weekly' AND FIND_IN_SET(:weekday, weekdays) > 0))''',
-      {'date': date, 'weekday': weekday},
-    );
-    final result = await connection.execute(
-      '''SELECT d.*, t.recurrence, t.weekdays, t.start_date AS schedule_start_date
+          {'date': date, 'weekday': weekday},
+        );
+        await connection.execute(
+          """INSERT IGNORE INTO la_task_days
+      (id, template_id, task_date, title, content, tutorial, task_value, minimum_goal,
+       completion_standard, start_action, estimated_minutes, sort_order, space)
+      SELECT CONCAT(t.id, ':', t.start_date), t.id, t.start_date, t.title, t.content,
+       t.tutorial, t.task_value, t.minimum_goal, t.completion_standard, t.start_action,
+       t.estimated_minutes, t.sort_order, t.space
+      FROM la_task_templates t WHERE t.space = 'work' AND t.active = TRUE
+       AND t.start_date <= :today
+       AND NOT EXISTS (SELECT 1 FROM la_task_days d WHERE d.template_id = t.id AND d.space = 'work')""",
+          {'today': dayKey(chinaNow())},
+        );
+        final result = await connection.execute(
+          '''SELECT d.*, t.recurrence, t.weekdays, t.start_date AS schedule_start_date,
+        (SELECT COUNT(*) FROM la_focus_sessions f WHERE f.task_day_id = d.id
+          AND f.kind = 'focus' AND f.status = 'completed' AND f.actual_seconds >= 180) AS focus_count
       FROM la_task_days d JOIN la_task_templates t ON d.template_id = t.id
-      WHERE d.task_date = :date AND (:date < :today OR d.completed_at IS NOT NULL
+      WHERE d.space = 'life' AND d.task_date = :date AND (:date < :today OR d.completed_at IS NOT NULL
         OR d.carried_from_date IS NOT NULL
         OR (t.active = TRUE AND t.start_date <= :date AND
           ((t.recurrence = 'once' AND t.start_date = :date) OR t.recurrence = 'daily'
             OR (t.recurrence = 'weekly' AND FIND_IN_SET(:weekday, t.weekdays) > 0))))
       ORDER BY d.sort_order, d.id''',
-      {'date': date, 'today': dayKey(chinaNow()), 'weekday': weekday},
-    );
-    return result.rows.map((row) => DailyTask.fromJson(row.assoc())).toList();
-  });
+          {'date': date, 'today': dayKey(chinaNow()), 'weekday': weekday},
+        );
+        final work = await connection.execute(
+          """SELECT d.*, t.recurrence, t.weekdays, t.start_date AS schedule_start_date,
+        (SELECT COUNT(*) FROM la_focus_sessions f WHERE f.task_day_id = d.id
+          AND f.kind = 'focus' AND f.status = 'completed' AND f.actual_seconds >= 180) AS focus_count
+      FROM la_task_days d JOIN la_task_templates t ON t.id = d.template_id
+      WHERE d.space = 'work' AND d.task_date <= :today
+      AND (d.completed_at IS NOT NULL OR (t.active = TRUE AND NOT EXISTS
+        (SELECT 1 FROM la_task_days newer WHERE newer.template_id = d.template_id
+          AND newer.space = 'work' AND newer.task_date > d.task_date AND newer.task_date <= :today)))
+      ORDER BY d.sort_order, d.id""",
+          {'today': dayKey(chinaNow())},
+        );
+        return [
+          ...result.rows,
+          ...work.rows,
+        ].map((row) => DailyTask.fromJson(row.assoc())).toList();
+      });
 
   @override
-  Future<void> addToToday(DailyTask task, String today) =>
-      _connection((connection) async {
-        await connection.transactional((transaction) async {
-          final result = await transaction.execute(
-            'SELECT task_date, completed_at FROM la_task_days WHERE id = :id FOR UPDATE',
-            {'id': task.id},
-          );
-          if (result.rows.isEmpty) throw const FormatException('找不到这项任务');
-          final source = result.rows.first.assoc();
-          if (source['completed_at'] != null ||
-              source['task_date'].toString().substring(0, 10) == today) {
-            throw const FormatException('只能将其他日期未完成的任务加入今天');
-          }
-          await transaction.execute(
-            '''INSERT INTO la_task_days
+  Future<void> addToToday(DailyTask task, String today) => _connection((
+    connection,
+  ) async {
+    if (task.space == 'work') throw const FormatException('工作任务持续保留，无需加入今天');
+    await connection.transactional((transaction) async {
+      final result = await transaction.execute(
+        'SELECT task_date, completed_at FROM la_task_days WHERE id = :id FOR UPDATE',
+        {'id': task.id},
+      );
+      if (result.rows.isEmpty) throw const FormatException('找不到这项任务');
+      final source = result.rows.first.assoc();
+      if (source['completed_at'] != null ||
+          source['task_date'].toString().substring(0, 10) == today) {
+        throw const FormatException('只能将其他日期未完成的任务加入今天');
+      }
+      await transaction.execute(
+        '''INSERT INTO la_task_days
           (id, template_id, task_date, carried_from_date, title, content, tutorial,
            task_value, minimum_goal, completion_standard, start_action, estimated_minutes, sort_order, space)
         SELECT CONCAT(template_id, ':', :today), template_id, :today, task_date,
@@ -126,9 +156,18 @@ class MySqlTaskRepository implements TaskRepository {
         FROM la_task_days AS source_task WHERE id = :id
         ON DUPLICATE KEY UPDATE carried_from_date = IF(la_task_days.completed_at IS NULL,
           COALESCE(la_task_days.carried_from_date, VALUES(carried_from_date)), la_task_days.carried_from_date)''',
-            {'id': task.id, 'today': today},
-          );
-        });
+        {'id': task.id, 'today': today},
+      );
+    });
+  });
+
+  @override
+  Future<void> setWaiting(String id, bool waiting) =>
+      _connection((connection) async {
+        await connection.execute(
+          "UPDATE la_task_days SET waiting = :waiting WHERE id = :id AND space = 'work'",
+          {'id': id, 'waiting': waiting ? 1 : 0},
+        );
       });
 
   @override
@@ -183,7 +222,7 @@ class MySqlTaskRepository implements TaskRepository {
         content = :content, tutorial = :tutorial, sort_order = :sort,
         task_value = :value, minimum_goal = :goal, completion_standard = :standard,
         start_action = :action, estimated_minutes = :estimate, space = :space
-        WHERE template_id = :id AND task_date >= :today AND completed_at IS NULL''',
+        WHERE template_id = :id AND (task_date >= :today OR (space = 'work' AND id = :workId)) AND completed_at IS NULL''',
             {
               'space': draft.space,
               'id': id,
@@ -197,6 +236,7 @@ class MySqlTaskRepository implements TaskRepository {
               'action': _optional(draft.startAction),
               'estimate': draft.estimatedMinutes,
               'today': dayKey(chinaNow()),
+              'workId': existing?.id ?? '',
             },
           );
         });

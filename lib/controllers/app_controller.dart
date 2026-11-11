@@ -22,8 +22,27 @@ class AppController extends ChangeNotifier {
   final FocusEngine engine;
   final DateTime Function() clock;
   String space = 'life';
-  List<DailyTask> get visibleTasks =>
-      tasks.where((t) => t.space == space).toList();
+  List<DailyTask> get visibleTasks => tasks
+      .where(
+        (t) =>
+            t.space == space &&
+            (space != 'work' || !t.completed || _completedThisWeek(t)),
+      )
+      .toList();
+  bool _completedThisWeek(DailyTask task) {
+    final now = DateTime.parse(today);
+    final start = now.subtract(Duration(days: now.weekday - 1));
+    final completed = chinaNow(
+      DateTime.parse('${task.completedAt!.replaceAll('Z', '')}Z'),
+    );
+    final key = dayKey(completed);
+    return key.compareTo(dayKey(start)) >= 0 &&
+        key.compareTo(dayKey(start.add(const Duration(days: 7)))) < 0;
+  }
+
+  List<DailyTask> get workHistory =>
+      tasks.where((t) => t.space == 'work' && t.completed).toList()
+        ..sort((a, b) => b.completedAt!.compareTo(a.completedAt!));
   Future<void> selectSpace(String value) async {
     if (!['life', 'work'].contains(value)) return;
     space = value;
@@ -42,6 +61,7 @@ class AppController extends ChangeNotifier {
   final Map<String, dynamic> _cache = {};
   final Map<String, Map<String, dynamic>> _historyCache = {};
   final Map<String, dynamic> _pendingCompletion = {};
+  final Map<String, dynamic> _pendingWaiting = {};
   final Map<String, Map<String, dynamic>> _pendingSessions = {};
   Future<void> _writes = Future.value();
   Future<void>? _refreshing, _focusReading;
@@ -50,6 +70,45 @@ class AppController extends ChangeNotifier {
       visibleTasks.where((task) => !task.completed).toList();
   List<DailyTask> get completed =>
       visibleTasks.where((task) => task.completed).toList();
+
+  bool _countsAsPomodoro(Map<String, dynamic> row) =>
+      row['kind'] == 'focus' &&
+      row['status'] == 'completed' &&
+      _retainSession(row);
+
+  int focusCount(DailyTask task) =>
+      task.focusCount +
+      _pendingSessions.values
+          .where((row) => row['taskId'] == task.id && _countsAsPomodoro(row))
+          .length;
+
+  void _commitFocusCount(Map<String, dynamic> session) {
+    if (!_countsAsPomodoro(session)) return;
+    final taskId = session['taskId'];
+    if (taskId is! String || taskId.isEmpty) return;
+    // Transfer the local increment to the cached baseline before dropping the
+    // upload queue entry. A failed fetch must not lose a successfully sent count.
+    tasks = tasks
+        .map(
+          (task) => task.id == taskId
+              ? DailyTask.fromJson({
+                  ...task.toJson(),
+                  'focus_count': task.focusCount + 1,
+                })
+              : task,
+        )
+        .toList();
+    for (final key in _cache.keys.toList()) {
+      _cache[key] = (_cache[key] as List).map((value) {
+        final row = Map<String, dynamic>.from(value as Map);
+        if (row['id'] == taskId) {
+          row['focus_count'] =
+              (int.tryParse('${row['focus_count'] ?? 0}') ?? 0) + 1;
+        }
+        return row;
+      }).toList();
+    }
+  }
 
   Future<void> initialize() async {
     try {
@@ -65,6 +124,9 @@ class AppController extends ChangeNotifier {
               entry.value as Map,
             );
           }
+          _pendingWaiting.addAll(
+            data['waiting'] as Map<String, dynamic>? ?? {},
+          );
           _cache.addAll(data['days'] as Map<String, dynamic>? ?? {});
           _pendingCompletion.addAll(
             data['completion'] as Map<String, dynamic>? ?? {},
@@ -90,7 +152,15 @@ class AppController extends ChangeNotifier {
   }
 
   void _loadCache() {
-    final rows = _cache[date] as List<dynamic>? ?? [];
+    final rows = [
+      ...(_cache[date] as List<dynamic>? ?? []).where(
+        (r) => r['space'] != 'work',
+      ),
+      ...(_cache['work'] as List<dynamic>? ??
+          (_cache[date] as List<dynamic>? ?? []).where(
+            (r) => r['space'] == 'work',
+          )),
+    ];
     tasks = rows
         .map((row) => DailyTask.fromJson(Map<String, dynamic>.from(row as Map)))
         .toList();
@@ -100,6 +170,9 @@ class AppController extends ChangeNotifier {
 
   void _applyPending() {
     tasks = tasks.map((task) {
+      if (_pendingWaiting.containsKey(task.id)) {
+        task = task.withWaiting(_pendingWaiting[task.id] == true);
+      }
       final change = _pendingCompletion[task.id] as Map?;
       return change == null
           ? task
@@ -112,12 +185,17 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> _persist() {
+    _cache['work'] = tasks
+        .where((t) => t.space == 'work')
+        .map((t) => t.toJson())
+        .toList();
     _cache[date] = tasks.map((task) => task.toJson()).toList();
     final snapshot = jsonEncode({
       'history': _historyCache,
       'space': space,
       'days': _cache,
       'completion': _pendingCompletion,
+      'waiting': _pendingWaiting,
       'sessions': _pendingSessions,
     });
     _writes = _writes
@@ -135,7 +213,7 @@ class AppController extends ChangeNotifier {
 
   Future<void> addToToday(DailyTask task) async {
     final target = today;
-    if (task.completed || task.date == target) {
+    if (task.space == 'work' || task.completed || task.date == target) {
       throw const FormatException('只能将其他日期未完成的任务加入今天');
     }
     if (_refreshing != null) await _refreshing;
@@ -194,11 +272,23 @@ class AppController extends ChangeNotifier {
         _pendingSessions,
       ).entries) {
         await repository.saveSession(entry.value);
+        _commitFocusCount(entry.value);
         _pendingSessions.remove(entry.key);
+      }
+      for (final entry in Map<String, dynamic>.from(_pendingWaiting).entries) {
+        await repository.setWaiting(entry.key, entry.value == true);
+        if (_pendingWaiting[entry.key] == entry.value) {
+          _pendingWaiting.remove(entry.key);
+        }
       }
       final rows = await repository.fetchDay(requested);
       if (_closed) return;
       _cache[requested] = rows.map((task) => task.toJson()).toList();
+      tasks = [
+        ...tasks.where((t) => t.space != 'work'),
+        ...rows.where((t) => t.space == 'work'),
+      ];
+      _applyPending();
       if (date == requested) {
         tasks = rows;
         _applyPending();
@@ -223,6 +313,16 @@ class AppController extends ChangeNotifier {
     _pendingCompletion[task.id] = {'completedAt': value, 'changedAt': now};
     tasks = tasks
         .map((item) => item.id == task.id ? item.withCompletion(value) : item)
+        .toList();
+    _notify();
+    await _persist();
+    unawaited(refresh());
+  }
+
+  Future<void> toggleWaiting(DailyTask task) async {
+    _pendingWaiting[task.id] = !task.waiting;
+    tasks = tasks
+        .map((t) => t.id == task.id ? t.withWaiting(!task.waiting) : t)
         .toList();
     _notify();
     await _persist();
