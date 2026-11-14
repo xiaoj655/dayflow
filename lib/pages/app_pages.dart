@@ -396,7 +396,11 @@ class _TaskListPageState extends State<TaskListPage> {
                   onPressed: () => _focus(context),
                   icon: const Icon(Icons.history_rounded, size: 14),
                   label: Text(
-                    controller.focus!.kind == 'rest' ? '休息已结束' : '本次专注已结束',
+                    controller.focus!.kind == 'rest'
+                        ? '休息已结束'
+                        : controller.focus!.interrupted
+                        ? '本次专注提前结束'
+                        : '本次专注已结束',
                   ),
                 ),
               ),
@@ -1669,45 +1673,45 @@ class _FocusPageState extends State<FocusPage> {
     Navigator.popUntil(context, (route) => route.isFirst);
   }
 
+  Future<void> _finishEarly() async {
+    final session = controller.focus;
+    if (session == null || !session.active) return;
+    final rest = session.kind == 'rest';
+    final stop = await appDialog<bool>(
+      context,
+      title: rest ? '结束本次休息？' : '结束本次专注？',
+      actions: (dialog) => [
+        FilledButton(
+          onPressed: () {
+            if (ModalRoute.of(dialog)?.isCurrent == true) {
+              Navigator.pop(dialog, false);
+            }
+          },
+          child: Text(rest ? '继续休息' : '继续专注'),
+        ),
+        TextButton(
+          onPressed: () {
+            if (ModalRoute.of(dialog)?.isCurrent == true) {
+              Navigator.pop(dialog, true);
+            }
+          },
+          child: Text(rest ? '结束休息' : '结束专注'),
+        ),
+      ],
+    );
+    if (stop == true && isCurrent && controller.focus?.id == session.id) {
+      await controller.finishEarly(session.id);
+    }
+  }
+
   Widget _controls(BuildContext context) => Row(
     mainAxisAlignment: MainAxisAlignment.center,
     children: [
       IconButton.filledTonal(
-        tooltip: '提前结束',
+        tooltip: controller.focus!.kind == 'rest' ? '结束休息' : '提前结束',
         style: IconButton.styleFrom(fixedSize: const Size(48, 48)),
         icon: const Icon(Icons.stop_rounded, size: 24),
-        onPressed: busy
-            ? null
-            : () => _run(() async {
-                final stop = await appDialog<bool>(
-                  context,
-                  title: '结束本次专注？',
-                  actions: (dialog) => [
-                    FilledButton(
-                      onPressed: () {
-                        if (ModalRoute.of(dialog)?.isCurrent == true) {
-                          Navigator.pop(dialog, false);
-                        }
-                      },
-                      child: const Text('继续专注'),
-                    ),
-                    TextButton(
-                      onPressed: () {
-                        if (ModalRoute.of(dialog)?.isCurrent == true) {
-                          Navigator.pop(dialog, true);
-                        }
-                      },
-                      child: const Text('结束专注'),
-                    ),
-                  ],
-                );
-                if (stop == true && isCurrent) {
-                  final stopped = await _action('stop');
-                  if (stopped && context.mounted && isCurrent) {
-                    Navigator.pop(context);
-                  }
-                }
-              }),
+        onPressed: busy ? null : () => _run(_finishEarly),
       ),
       const SizedBox(width: 16),
       IconButton.filled(
@@ -1751,6 +1755,8 @@ class _FocusPageState extends State<FocusPage> {
           taskTitle: focus.taskTitle,
           minutes: focus.plannedSeconds ~/ 60,
           isRest: focus.kind == 'rest',
+          interrupted: focus.interrupted,
+          actualSeconds: focus.elapsedSeconds,
           busy: busy,
           taskCompleted: task?.completed == true,
           onTaskCompletion: task == null || task.id.isEmpty

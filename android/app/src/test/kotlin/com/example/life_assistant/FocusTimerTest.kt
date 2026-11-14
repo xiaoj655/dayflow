@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.content.ComponentName
 import android.content.Context
 import android.net.Uri
+import android.os.Vibrator
 import android.provider.Settings
 import android.service.notification.Condition
 import org.junit.Assert.*
@@ -177,6 +178,123 @@ class FocusTimerTest {
         assertEquals("阅读", restored["taskTitle"])
         assertEquals("先读一节", restored["startAction"])
         assertTrue((restored["remainingMillis"] as Long) > 0)
+    }
+
+    @Test fun earlyFinishKeepsAnAccurateSummaryAndClearsActiveEffectsWithoutVibrating() {
+        start()
+        elapse(Duration.ofMillis(189600))
+        val snapshot = timer.handle("finishEarly", mapOf("id" to "session-1"))
+        val state = snapshot["state"] as Map<*, *>
+        assertEquals("finished", state["status"])
+        assertEquals("interrupted", state["completionStatus"])
+        assertEquals(189, state["actualSeconds"])
+        assertEquals(110400L, state["remainingMillis"])
+        assertEquals(300, state["plannedSeconds"])
+        val record = (snapshot["records"] as List<*>).single() as Map<*, *>
+        assertEquals("interrupted", record["status"])
+        assertEquals(189, record["actualSeconds"])
+        assertEquals(wall, record["endedAt"])
+        assertEquals(Condition.STATE_FALSE, FocusDnd(context).condition().state)
+        assertNull(shadowOf(context.getSystemService(AlarmManager::class.java)).nextScheduledAlarm)
+        assertNull(shadowOf(manager).getNotification(73))
+        assertFalse(shadowOf(context.getSystemService(Vibrator::class.java)).isVibrating)
+    }
+
+    @Test fun earlyFinishWhilePausedExcludesTheEntirePause() {
+        start()
+        elapse(Duration.ofSeconds(190))
+        timer.handle("pause", emptyMap<Any, Any>())
+        elapse(Duration.ofHours(1))
+        val snapshot = timer.handle("finishEarly", emptyMap<Any, Any>())
+        val state = snapshot["state"] as Map<*, *>
+        assertEquals(190, state["actualSeconds"])
+        assertEquals(110000L, state["remainingMillis"])
+        assertEquals(190, ((snapshot["records"] as List<*>).single() as Map<*, *>)["actualSeconds"])
+        elapse(Duration.ofHours(1))
+        assertEquals(state, createTimer().snapshot()["state"])
+    }
+
+    @Test fun earlyFinishUnderThreeMinutesKeepsASummaryWithoutRecordingFocus() {
+        start()
+        elapse(Duration.ofMillis(179999))
+        val snapshot = timer.handle("finishEarly", emptyMap<Any, Any>())
+        val state = snapshot["state"] as Map<*, *>
+        assertEquals("interrupted", state["completionStatus"])
+        assertEquals(179, state["actualSeconds"])
+        assertTrue((snapshot["records"] as List<*>).isEmpty())
+        assertEquals(Condition.STATE_FALSE, FocusDnd(context).condition().state)
+    }
+
+    @Test fun earlyFinishAtThreeActiveMinutesRecordsAnInterruptedRound() {
+        start()
+        elapse(Duration.ofSeconds(179))
+        timer.handle("pause", emptyMap<Any, Any>())
+        elapse(Duration.ofHours(1))
+        timer.handle("resume", emptyMap<Any, Any>())
+        elapse(Duration.ofSeconds(1))
+        val snapshot = timer.handle("finishEarly", emptyMap<Any, Any>())
+        val record = (snapshot["records"] as List<*>).single() as Map<*, *>
+        assertEquals(180, record["actualSeconds"])
+        assertEquals("interrupted", record["status"])
+        assertEquals(180, (snapshot["state"] as Map<*, *>)["actualSeconds"])
+    }
+
+    @Test fun earlyFinishSurvivesRestorationAndCannotReplayAnAcknowledgedRecord() {
+        start()
+        elapse(Duration.ofSeconds(181))
+        timer.handle("finishEarly", mapOf("id" to "session-1"))
+        val restored = createTimer()
+        restored.restoreAfterBoot()
+        val repeated = restored.handle("finishEarly", mapOf("id" to "session-1"))
+        assertEquals(1, (repeated["records"] as List<*>).size)
+        val state = repeated["state"] as Map<*, *>
+        assertEquals(181, state["actualSeconds"])
+        restored.handle("ack", mapOf("ids" to listOf("session-1")))
+        val afterAck = createTimer().handle("finishEarly", mapOf("id" to "session-1"))
+        assertEquals(state, afterAck["state"])
+        assertTrue((afterAck["records"] as List<*>).isEmpty())
+        val rest = start("next-rest", "rest")["state"] as Map<*, *>
+        assertEquals("next-rest", rest["id"])
+        assertEquals("running", rest["status"])
+    }
+
+    @Test fun earlyFinishSettlesAnAlreadyExpiredRoundAsNaturalCompletion() {
+        start()
+        elapse(Duration.ofMinutes(6))
+        timer.handle("finishEarly", mapOf("id" to "session-1"))
+        val repeated = timer.handle("finishEarly", mapOf("id" to "session-1"))
+        val state = repeated["state"] as Map<*, *>
+        assertEquals("completed", state["completionStatus"])
+        assertEquals(300, state["actualSeconds"])
+        assertEquals(0L, state["remainingMillis"])
+        val record = (repeated["records"] as List<*>).single() as Map<*, *>
+        assertEquals("completed", record["status"])
+        assertEquals(300, record["actualSeconds"])
+    }
+
+    @Test fun earlyFinishWithAnOldIdCannotEndTheCurrentSession() {
+        start("new-session")
+        elapse(Duration.ofSeconds(190))
+        val snapshot = timer.handle("finishEarly", mapOf("id" to "old-session"))
+        val state = snapshot["state"] as Map<*, *>
+        assertEquals("running", state["status"])
+        assertEquals("new-session", state["id"])
+        assertEquals(110000L, state["remainingMillis"])
+        assertTrue((snapshot["records"] as List<*>).isEmpty())
+        assertEquals(Condition.STATE_TRUE, FocusDnd(context).condition().state)
+        assertNotNull(shadowOf(context.getSystemService(AlarmManager::class.java)).nextScheduledAlarm)
+    }
+
+    @Test fun earlyFinishOfAShortRestStillRecordsTheRest() {
+        start(kind = "rest")
+        elapse(Duration.ofSeconds(10))
+        val snapshot = timer.handle("finishEarly", emptyMap<Any, Any>())
+        assertEquals(10, (snapshot["state"] as Map<*, *>)["actualSeconds"])
+        val record = (snapshot["records"] as List<*>).single() as Map<*, *>
+        assertEquals(10, record["actualSeconds"])
+        assertEquals("rest", record["kind"])
+        assertEquals("interrupted", record["status"])
+        assertEquals(Condition.STATE_FALSE, FocusDnd(context).condition().state)
     }
 }
 

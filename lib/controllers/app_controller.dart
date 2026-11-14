@@ -560,6 +560,9 @@ class AppController extends ChangeNotifier {
   Future<void> focusAction(String method) async =>
       _applyFocus(await engine.call(method));
 
+  Future<void> finishEarly(String expectedId) async =>
+      _applyFocus(await engine.call('finishEarly', {'id': expectedId}));
+
   @override
   void dispose() {
     _closed = true;

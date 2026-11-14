@@ -202,13 +202,16 @@ class FakeFocusEngine implements FocusEngine {
       : state!['remainingMillis'] as int;
   void record(bool completed) {
     if (records.any((record) => record['id'] == state!['id'])) return;
+    final planned = state!['plannedSeconds'] as int;
+    final actual = completed
+        ? planned
+        : ((planned * 1000 - remaining()) ~/ 1000).clamp(0, planned);
+    if (state!['kind'] == 'focus' && actual < 180) return;
     records.add({
       ...state!,
-      'actualSeconds': completed
-          ? state!['plannedSeconds']
-          : (state!['plannedSeconds'] as int) - remaining() ~/ 1000,
+      'actualSeconds': actual,
       'status': completed ? 'completed' : 'interrupted',
-      'endedAt': milliseconds,
+      'endedAt': completed ? state!['deadline'] : milliseconds,
     });
   }
 
@@ -218,6 +221,8 @@ class FakeFocusEngine implements FocusEngine {
       if (left == 0) {
         record(true);
         state!['status'] = 'finished';
+        state!['completionStatus'] = 'completed';
+        state!['actualSeconds'] = state!['plannedSeconds'];
       }
       state!['remainingMillis'] = left;
     }
@@ -255,6 +260,21 @@ class FakeFocusEngine implements FocusEngine {
           state!['deadline'] =
               milliseconds + (state!['remainingMillis'] as int);
           state!['status'] = 'running';
+        }
+      case 'finishEarly':
+        if (state != null &&
+            (args['id'] == null || args['id'] == state!['id']) &&
+            (state!['status'] == 'running' || state!['status'] == 'paused')) {
+          final left = remaining();
+          final planned = state!['plannedSeconds'] as int;
+          state!['remainingMillis'] = left;
+          state!['status'] = 'finished';
+          state!['completionStatus'] = 'interrupted';
+          state!['actualSeconds'] = ((planned * 1000 - left) ~/ 1000).clamp(
+            0,
+            planned,
+          );
+          record(false);
         }
       case 'stop':
         if (state != null && state!['status'] != 'finished') record(false);

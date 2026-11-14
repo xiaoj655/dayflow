@@ -17,6 +17,7 @@ Flutter 原生 Android 应用，由 Hermes 编排与填写任务，手表查看�
 - 专注自动开启 App 自有勿扰规则，并通过小米系统联动手机；暂停、结束或提前停止后撤销本轮开启的勿扰，休息不启用。开始前已有勿扰时不接管；专注中观察到手动接管后不再撤销。首次开始前需授予通知、闹钟、勿扰控制和小米联动所需权限。
 - 定时任务主动提醒、稍后再做及今天跳过暂不实现。
 - 完成页首屏可继续当前任务、休息（默认 5 分钟）或直接换任务；任务勾选支持完成与撤销，不自动完成任务。下一轮无需返回旧详情，返回任务直接回首页。
+- 提前结束专注或休息后也保留收尾页，按实际计时时长显示，可直接完成任务、休息或开始下一轮。提前结束不计完整番茄钟；专注不足 3 分钟显示“未记录”，不会进入分析。
 - Android 使用持久化计时状态和系统精确闹钟，独立于 Flutter 页面；支持熄屏、后台及重启后恢复。需允许系统闹钟/提醒和通知权限，遵循系统勿扰设置。
 - 本地缓存任务和待同步的完成状态、专注记录；联网后重放，专注记录按会话 ID 去重。
 
@@ -54,24 +55,26 @@ Flutter 原生 Android 应用，由 Hermes 编排与填写任务，手表查看�
   <tr>
     <td align="center"><img src="docs/screenshots/focus-paused.png" width="200" height="200" alt="专注暂停"><br>专注暂停</td>
     <td align="center"><img src="docs/screenshots/focus-finished.png" width="200" height="200" alt="专注结束"><br>专注结束</td>
-    <td align="center"><img src="docs/screenshots/rest-running.png" width="200" height="200" alt="休息计时"><br>休息计时</td>
+    <td align="center"><img src="docs/screenshots/focus-interrupted.png" width="200" height="200" alt="提前结束"><br>提前结束</td>
   </tr>
   <tr>
+    <td align="center"><img src="docs/screenshots/focus-unrecorded.png" width="200" height="200" alt="短专注未记录"><br>短专注未记录</td>
+    <td align="center"><img src="docs/screenshots/rest-running.png" width="200" height="200" alt="休息计时"><br>休息计时</td>
     <td align="center"><img src="docs/screenshots/rest-finished.png" width="200" height="200" alt="休息结束"><br>休息结束</td>
+  </tr>
+  <tr>
     <td align="center"><img src="docs/screenshots/analysis.png" width="200" height="200" alt="专注分析"><br>专注分析</td>
     <td align="center"><img src="docs/screenshots/analysis-empty.png" width="200" height="200" alt="空分析"><br>空分析</td>
+    <td align="center"><img src="docs/screenshots/work-mode.png" width="200" height="200" alt="工作提醒已关闭"><br>工作提醒已关闭</td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/screenshots/work-mode.png" width="200" height="200" alt="工作提醒已关闭"><br>工作提醒已关闭</td>
     <td align="center"><img src="docs/screenshots/work-active.png" width="200" height="200" alt="工作提醒已开启"><br>工作提醒已开启</td>
     <td align="center"><img src="docs/screenshots/work-reminders.png" width="200" height="200" alt="休息提醒设置"><br>休息提醒设置</td>
+    <td align="center"><img src="docs/screenshots/work-schedule.png" width="200" height="200" alt="提醒时段设置"><br>提醒时段设置</td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/screenshots/work-schedule.png" width="200" height="200" alt="提醒时段设置"><br>提醒时段设置</td>
     <td align="center"><img src="docs/screenshots/reminder-interval.png" width="200" height="200" alt="提醒间隔"><br>提醒间隔</td>
     <td align="center"><img src="docs/screenshots/work-end-time.png" width="200" height="200" alt="自动关闭时间"><br>自动关闭时间</td>
-  </tr>
-  <tr>
     <td align="center"><img src="docs/screenshots/work-history.png" width="200" height="200" alt="工作完成记录"><br>工作完成记录</td>
   </tr>
 </table>

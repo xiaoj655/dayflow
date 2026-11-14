@@ -39,6 +39,8 @@ PAGES = (
     ('focus-running', '专注计时'),
     ('focus-paused', '专注暂停'),
     ('focus-finished', '专注结束'),
+    ('focus-interrupted', '提前结束'),
+    ('focus-unrecorded', '短专注未记录'),
     ('rest-running', '休息计时'),
     ('rest-finished', '休息结束'),
     ('analysis', '专注分析'),

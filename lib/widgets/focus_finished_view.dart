@@ -20,9 +20,13 @@ class FocusFinishedView extends StatelessWidget {
     this.onRest,
     this.onTaskCompletion,
     this.taskCompleted = false,
+    this.interrupted = false,
+    this.actualSeconds,
   });
 
   final bool isRound, isRest, busy, taskCompleted;
+  final bool interrupted;
+  final int? actualSeconds;
   final String taskTitle;
   final int minutes;
   final VoidCallback onContinue, onChangeTask, onReturn;
@@ -47,7 +51,7 @@ class FocusFinishedView extends StatelessWidget {
       const SizedBox(width: 3),
       Flexible(
         child: Text(
-          isRest ? '休息结束' : '专注完成',
+          isRest ? '休息结束' : (interrupted ? '提前结束' : '专注完成'),
           key: const ValueKey('focus-finished-title'),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
@@ -105,17 +109,24 @@ class FocusFinishedView extends StatelessWidget {
     ],
   );
 
-  Widget _minutes() => Text(
-    '$minutes 分钟',
-    key: const ValueKey('focus-finished-minutes'),
-    textAlign: TextAlign.center,
-    style: const TextStyle(
-      color: AppColors.muted,
-      fontSize: 15,
-      height: 1.1,
-      fontFeatures: [FontFeature.tabularFigures()],
-    ),
-  );
+  Widget _minutes() {
+    final seconds = actualSeconds ?? minutes * 60;
+    final duration = '${seconds ~/ 60}分${seconds % 60}秒';
+    final label = interrupted
+        ? (!isRest && seconds < 180 ? '$duration · 未记录' : '实际 $duration')
+        : '$minutes 分钟';
+    return Text(
+      label,
+      key: const ValueKey('focus-finished-minutes'),
+      textAlign: TextAlign.center,
+      style: TextStyle(
+        color: AppColors.muted,
+        fontSize: interrupted ? 13 : 15,
+        height: 1.1,
+        fontFeatures: [FontFeature.tabularFigures()],
+      ),
+    );
+  }
 
   Widget _secondaryButton({required bool rest, required bool largeText}) =>
       FilledButton.tonal(
@@ -226,7 +237,12 @@ class FocusFinishedView extends StatelessWidget {
                     ),
                     SizedBox(
                       height: 18 * scale,
-                      child: Center(child: _minutes()),
+                      child: Center(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: _minutes(),
+                        ),
+                      ),
                     ),
                     SizedBox(height: 4 * scale),
                     SizedBox(

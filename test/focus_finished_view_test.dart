@@ -14,6 +14,8 @@ Future<void> _pumpFinished(
   bool busy = false,
   bool isRest = false,
   bool taskCompleted = false,
+  bool interrupted = false,
+  int? actualSeconds,
   String taskTitle = '整理项目需求与下一步计划',
   VoidCallback onContinue = _noop,
   VoidCallback onChangeTask = _noop,
@@ -43,6 +45,8 @@ Future<void> _pumpFinished(
         isRest: isRest,
         busy: busy,
         taskCompleted: taskCompleted,
+        interrupted: interrupted,
+        actualSeconds: actualSeconds,
         onContinue: onContinue,
         onChangeTask: onChangeTask,
         onReturn: onReturn,
@@ -75,6 +79,37 @@ void _expectInsideCircle(WidgetTester tester, Finder finder, double diameter) {
 
 void main() {
   for (final diameter in [192.0, 240.0]) {
+    for (final seconds in [0, 179, 180, 10799]) {
+      testWidgets(
+        'Early finish shows $seconds seconds safely at $diameter dp',
+        (tester) async {
+          await _pumpFinished(
+            tester,
+            diameter: diameter,
+            interrupted: true,
+            actualSeconds: seconds,
+            onRest: _noop,
+            onTaskCompletion: _noop,
+          );
+          expect(find.text('提前结束'), findsOneWidget);
+          final duration = tester.widget<Text>(_control('minutes')).data!;
+          expect(duration, contains('${seconds ~/ 60}分${seconds % 60}秒'));
+          expect(duration.contains('未记录'), seconds < 180);
+          _expectInsideCircle(tester, _control('minutes'), diameter);
+          for (final name in [
+            'task-completion',
+            'continue',
+            'rest',
+            'change-task',
+          ]) {
+            expect(_control(name).hitTestable(), findsOneWidget);
+            _expectInsideCircle(tester, _control(name), diameter);
+          }
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+
     testWidgets('All next-round actions fit on the first $diameter dp screen', (
       tester,
     ) async {
@@ -196,12 +231,20 @@ void main() {
     await _pumpFinished(
       tester,
       textScale: 2,
+      interrupted: true,
+      actualSeconds: 179,
       onContinue: () => calls.add('continue'),
       onChangeTask: () => calls.add('change-task'),
       onRest: () => calls.add('rest'),
       onTaskCompletion: () => calls.add('task-completion'),
     );
     expect(find.byType(ShapeScrollView), findsOneWidget);
+    await tester.scrollUntilVisible(
+      _control('minutes'),
+      50,
+      scrollable: find.byType(Scrollable),
+    );
+    expect(find.text('2分59秒 · 未记录'), findsOneWidget);
     for (final name in ['continue', 'rest', 'change-task']) {
       await tester.scrollUntilVisible(
         _control(name),

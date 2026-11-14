@@ -116,6 +116,7 @@ class FocusTimer(private val context: Context, private val clock: () -> Long = S
         // Journal the completed session before changing state. ID-based replay is safe.
         record(value, "completed")
         value.put("status", "finished").put("remainingMillis", 0)
+            .put("completionStatus", "completed").put("actualSeconds", value.getInt("plannedSeconds"))
         save(value)
         cancel(value)
         dnd.release()
@@ -196,6 +197,29 @@ class FocusTimer(private val context: Context, private val clock: () -> Long = S
                         cancel(value); dnd.release(); throw error
                     }
                     notify(value)
+                }
+            }
+            "finishEarly" -> {
+                finish()
+                val value = state()
+                val expectedId = args["id"] as? String
+                if (value != null && (expectedId == null || value.getString("id") == expectedId)) {
+                    if (value.getString("status") in listOf("running", "paused")) {
+                        val left = remaining(value)
+                        val planned = value.getInt("plannedSeconds")
+                        // Freeze the active duration before journaling. Paused time must not count,
+                        // and a failed state write may safely replay the same record by ID.
+                        value.put("remainingMillis", left).put("status", "finished")
+                            .put("completionStatus", "interrupted")
+                            .put("actualSeconds", ((planned * 1000L - left) / 1000).toInt().coerceIn(0, planned))
+                        record(value, "interrupted")
+                        save(value)
+                    }
+                    if (value.optString("completionStatus") == "interrupted") {
+                        cancel(value)
+                        dnd.release()
+                        notifications.cancel(73)
+                    }
                 }
             }
             "stop" -> {
