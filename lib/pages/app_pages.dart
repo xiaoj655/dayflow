@@ -16,6 +16,7 @@ import '../widgets/wear_controls.dart';
 import '../widgets/minute_picker.dart';
 import '../widgets/segmented_day_timeline.dart';
 import '../widgets/focus_finished_view.dart';
+import '../widgets/focus_task_picker.dart';
 
 const accent = AppColors.primary;
 const surface = AppColors.surface;
@@ -1371,6 +1372,8 @@ class _FocusSetupPageState extends State<FocusSetupPage> {
                   builder: (_) => TaskPickerPage(
                     controller: widget.controller,
                     isRound: widget.isRound,
+                    initialSpace: task.space,
+                    selectedTaskId: task.id,
                   ),
                 ),
               );
@@ -1488,52 +1491,25 @@ class TaskPickerPage extends StatelessWidget {
     super.key,
     required this.controller,
     required this.isRound,
-    this.pendingOnly = false,
+    this.pendingOnly = true,
     this.title = '关联任务',
+    this.initialSpace,
+    this.selectedTaskId,
   });
   final AppController controller;
   final bool isRound;
   final bool pendingOnly;
   final String title;
+  final String? initialSpace, selectedTaskId;
   @override
-  Widget build(BuildContext context) => AppPage(
+  Widget build(BuildContext context) => FocusTaskPicker(
+    controller: controller,
     isRound: isRound,
-    children: [
-      backHeader(context, title),
-      TextButton(
-        onPressed: () => Navigator.pop(
-          context,
-          DailyTask(
-            id: '',
-            templateId: '',
-            date: controller.date,
-            title: '自由专注',
-            content: '',
-            space: controller.space,
-          ),
-        ),
-        child: Text(pendingOnly ? '自由专注' : '不关联任务'),
-      ),
-      const SizedBox(height: 8),
-      if (pendingOnly && controller.pending.isEmpty)
-        const Padding(
-          padding: EdgeInsets.symmetric(vertical: 8),
-          child: Text(
-            '待办已完成，也可以自由专注',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: muted, fontSize: 12),
-          ),
-        ),
-      for (final task in [
-        ...controller.pending,
-        if (!pendingOnly) ...controller.completed,
-      ])
-        TaskTile(
-          task: task,
-          focusCount: controller.focusCount(task),
-          onTap: () => Navigator.pop(context, task),
-        ),
-    ],
+    pendingOnly: pendingOnly,
+    title: title,
+    initialSpace: initialSpace,
+    selectedTaskId: selectedTaskId,
+    onSelected: (task) => Navigator.pop(context, task),
   );
 }
 
@@ -1630,6 +1606,8 @@ class _FocusPageState extends State<FocusPage> {
           isRound: isRound,
           pendingOnly: true,
           title: '下一项任务',
+          initialSpace: controller.focus?.space,
+          selectedTaskId: controller.focus?.taskId,
         ),
       ),
     );

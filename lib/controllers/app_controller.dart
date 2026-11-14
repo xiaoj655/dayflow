@@ -22,11 +22,13 @@ class AppController extends ChangeNotifier {
   final FocusEngine engine;
   final DateTime Function() clock;
   String space = 'life';
-  List<DailyTask> get visibleTasks => tasks
+  List<DailyTask> get visibleTasks => visibleTasksForSpace(space);
+
+  List<DailyTask> visibleTasksForSpace(String value) => tasks
       .where(
         (t) =>
-            t.space == space &&
-            (space != 'work' || !t.completed || _completedThisWeek(t)),
+            t.space == value &&
+            (value != 'work' || !t.completed || _completedThisWeek(t)),
       )
       .toList();
   bool _completedThisWeek(DailyTask task) {
