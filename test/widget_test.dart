@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -21,6 +22,8 @@ Future<AppController> configure(
   bool round = true,
   double textScale = 1,
   FakeRepository? repository,
+  FakeFocusEngine? engine,
+  MemoryStore? store,
   DateTime Function()? clock,
 }) async {
   tester.view.devicePixelRatio = 1;
@@ -33,8 +36,8 @@ Future<AppController> configure(
   addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
   final app = AppController(
     repository: repository ?? FakeRepository(),
-    store: MemoryStore(),
-    engine: FakeFocusEngine(),
+    store: store ?? MemoryStore(),
+    engine: engine ?? FakeFocusEngine(),
     clock: clock ?? () => DateTime.utc(2026, 11, 9, 2),
   );
   await app.initialize();
@@ -71,6 +74,98 @@ Future<void> reveal(WidgetTester tester, Finder finder) async {
         .first,
   );
   await Scrollable.ensureVisible(tester.element(finder), alignment: .5);
+  await tester.pumpAndSettle();
+}
+
+class DelayedPermissionsFocusEngine extends FakeFocusEngine {
+  final permission = Completer<void>();
+  int permissionRequests = 0;
+  int startRequests = 0;
+
+  @override
+  Future<Map<String, dynamic>> call(
+    String method, [
+    Map<String, dynamic>? arguments,
+  ]) async {
+    if (method == 'permissions') {
+      permissionRequests++;
+      await permission.future;
+    }
+    if (method == 'start') startRequests++;
+    return super.call(method, arguments);
+  }
+}
+
+class DelayedCommandFocusEngine extends FakeFocusEngine {
+  DelayedCommandFocusEngine(this.delayedMethod);
+
+  final String delayedMethod;
+  final response = Completer<void>();
+  final calls = <String>[];
+  bool delayNext = false;
+
+  @override
+  Future<Map<String, dynamic>> call(
+    String method, [
+    Map<String, dynamic>? arguments,
+  ]) async {
+    calls.add(method);
+    if (method == delayedMethod && delayNext) {
+      delayNext = false;
+      await response.future;
+    }
+    return super.call(method, arguments);
+  }
+}
+
+class DelayedTaskMutationRepository extends FakeRepository {
+  DelayedTaskMutationRepository(this.method);
+
+  final String method;
+  final response = Completer<void>();
+  int calls = 0;
+
+  Future<void> waitFor(String operation) async {
+    if (operation != method) return;
+    calls++;
+    await response.future;
+  }
+
+  @override
+  Future<void> saveTask(TaskDraft draft, {DailyTask? existing}) async {
+    await waitFor('save');
+    await super.saveTask(draft, existing: existing);
+  }
+
+  @override
+  Future<void> archiveTask(DailyTask task) async {
+    await waitFor('archive');
+    await super.archiveTask(task);
+  }
+
+  @override
+  Future<void> addToToday(DailyTask task, String today) async {
+    await waitFor('add');
+    await super.addToToday(task, today);
+  }
+}
+
+class DelayedTaskStore extends MemoryStore {
+  final response = Completer<void>();
+  bool block = false;
+
+  @override
+  Future<void> write(String key, String value) async {
+    if (block) await response.future;
+    await super.write(key, value);
+  }
+}
+
+Future<void> openTaskEditor(WidgetTester tester) async {
+  await tester.tap(find.text('街头观察'));
+  await tester.pumpAndSettle();
+  await reveal(tester, find.text('编辑任务'));
+  await tester.tap(find.text('编辑任务'));
   await tester.pumpAndSettle();
 }
 
@@ -459,6 +554,386 @@ void main() {
       },
     );
   }
+  for (final kind in ['focus', 'rest']) {
+    for (final position in ['top', 'bottom']) {
+      testWidgets(
+        'Task $position starts the selected task after $kind finishes without dismissal',
+        (tester) async {
+          final app = await configure(tester);
+          final engine = app.engine as FakeFocusEngine;
+          final first = app.tasks.first;
+          final second = app.tasks[1];
+          await tester.tap(find.text(first.title));
+          await tester.pumpAndSettle();
+          await reveal(tester, find.byKey(const ValueKey('detail-focus-top')));
+          await tester.tap(find.byKey(const ValueKey('detail-focus-top')));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('开始专注'));
+          await tester.pumpAndSettle();
+          final completedId = app.focus!.id;
+          engine.elapse(Duration(seconds: app.focus!.plannedSeconds));
+          await app.refreshFocus();
+          await app.refresh();
+          await tester.pumpAndSettle();
+          if (kind == 'rest') {
+            await app.start(first, 5, rest: true);
+            engine.elapse(const Duration(minutes: 5));
+            await app.refreshFocus();
+            await app.refresh();
+            await tester.pumpAndSettle();
+          }
+          expect(app.focus!.finished, isTrue);
+          expect(app.focus!.kind, kind);
+          Navigator.of(tester.element(find.byType(FocusPage)))
+              .popUntil((route) => route.isFirst);
+          await tester.pumpAndSettle();
+          expect(app.focus!.finished, isTrue);
+          await reveal(tester, find.text(second.title));
+          await tester.tap(find.text(second.title));
+          await tester.pumpAndSettle();
+          final entry = find.byKey(ValueKey('detail-focus-$position'));
+          await reveal(tester, entry);
+          expect(
+            find.descendant(of: entry, matching: find.text('开始专注')),
+            findsOneWidget,
+          );
+          await tester.tap(entry);
+          await tester.pumpAndSettle();
+          expect(find.byType(FocusSetupPage), findsOneWidget);
+          expect(find.byType(FocusPage), findsNothing);
+          expect(
+            find.byKey(const ValueKey('focus-task-selector')),
+            findsNothing,
+          );
+          expect(
+            tester
+                .widget<Text>(find.byKey(const ValueKey('focus-task-title')))
+                .data,
+            second.title,
+          );
+          await tester.tap(find.text('开始专注'));
+          await tester.pumpAndSettle();
+          expect(app.focus!.running, isTrue);
+          expect(app.focus!.taskId, second.id);
+          expect(
+            tester
+                .widget<Text>(find.byKey(const ValueKey('active-focus-task')))
+                .data,
+            second.title,
+          );
+          expect(
+            (app.repository as FakeRepository).sessions[completedId]?['taskId'],
+            first.id,
+          );
+          expect(
+            app.focusCount(
+              app.tasks.singleWhere((task) => task.id == first.id),
+            ),
+            1,
+          );
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+  }
+  for (final paused in [false, true]) {
+    final position = paused ? 'bottom' : 'top';
+    testWidgets(
+      'Task $position returns to the existing ${paused ? 'paused' : 'running'} focus',
+      (tester) async {
+        final app = await configure(tester);
+        final first = app.tasks.first;
+        final second = app.tasks[1];
+        await app.start(first, 25);
+        if (paused) await app.focusAction('pause');
+        await tester.pumpAndSettle();
+        final sessionId = app.focus!.id;
+        await reveal(tester, find.text(second.title));
+        await tester.tap(find.text(second.title));
+        await tester.pumpAndSettle();
+        final entry = find.byKey(ValueKey('detail-focus-$position'));
+        await reveal(tester, entry);
+        expect(
+          find.descendant(of: entry, matching: find.text('返回专注')),
+          findsOneWidget,
+        );
+        await tester.tap(entry);
+        await tester.pumpAndSettle();
+        expect(find.byType(FocusPage), findsOneWidget);
+        expect(find.byType(FocusSetupPage), findsNothing);
+        expect(app.focus!.id, sessionId);
+        expect(app.focus!.taskId, first.id);
+        expect(app.focus!.paused, paused);
+        expect(
+          tester
+              .widget<Text>(find.byKey(const ValueKey('active-focus-task')))
+              .data,
+          first.title,
+        );
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+  for (final kind in ['focus', 'rest']) {
+    testWidgets(
+      'Finished $kind preserves completion details and permits a new free focus',
+      (tester) async {
+        final app = await configure(tester);
+        final engine = app.engine as FakeFocusEngine;
+        final first = app.tasks.first;
+        await app.start(first, 5, rest: kind == 'rest');
+        engine.elapse(const Duration(minutes: 5));
+        await app.refreshFocus();
+        await tester.pumpAndSettle();
+        expect(app.focus!.finished, isTrue);
+        await tester.tap(find.text('本次专注已结束'));
+        await tester.pumpAndSettle();
+        expect(find.byType(FocusPage), findsOneWidget);
+        expect(find.text(kind == 'rest' ? '休息结束' : '本次专注完成'), findsOneWidget);
+        expect(find.text(first.title), findsOneWidget);
+        Navigator.of(tester.element(find.byType(FocusPage))).pop();
+        await tester.pumpAndSettle();
+        await reveal(tester, find.text('开始自由专注'));
+        await tester.tap(find.text('开始自由专注'));
+        await tester.pumpAndSettle();
+        expect(find.byType(FocusSetupPage), findsOneWidget);
+        expect(
+          tester
+              .widget<Text>(find.byKey(const ValueKey('focus-task-title')))
+              .data,
+          '自由专注',
+        );
+        final selector = find.byKey(const ValueKey('focus-task-selector'));
+        expect(selector, findsOneWidget);
+        await tester.tap(selector);
+        await tester.pumpAndSettle();
+        await reveal(tester, find.text('阅读'));
+        await tester.tap(find.text('阅读'));
+        await tester.pumpAndSettle();
+        expect(
+          tester
+              .widget<Text>(find.byKey(const ValueKey('focus-task-title')))
+              .data,
+          '阅读',
+        );
+        await tester.tap(find.text('开始专注'));
+        await tester.pumpAndSettle();
+        expect(app.focus!.running, isTrue);
+        expect(app.focus!.taskTitle, '阅读');
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+  testWidgets(
+    'Repeated start waits for permissions once and starts one focus',
+    (tester) async {
+      final engine = DelayedPermissionsFocusEngine();
+      final app = await configure(tester, engine: engine);
+      await reveal(tester, find.text('开始自由专注'));
+      await tester.tap(find.text('开始自由专注'));
+      await tester.pumpAndSettle();
+      final start = find.widgetWithText(FilledButton, '开始专注');
+      await tester.tap(start);
+      await tester.tap(start);
+      await tester.pump();
+      expect(engine.permissionRequests, 1);
+      expect(engine.startRequests, 0);
+      expect(tester.widget<FilledButton>(start).onPressed, isNull);
+      engine.permission.complete();
+      await tester.pumpAndSettle();
+      expect(engine.startRequests, 1);
+      expect(app.focus!.running, isTrue);
+      expect(find.byType(FocusPage), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+  testWidgets('Leaving setup while permissions are pending cancels the start', (
+    tester,
+  ) async {
+    final engine = DelayedPermissionsFocusEngine();
+    final app = await configure(tester, engine: engine);
+    await reveal(tester, find.text('开始自由专注'));
+    await tester.tap(find.text('开始自由专注'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('开始专注'));
+    await tester.pump();
+    expect(engine.permissionRequests, 1);
+    Navigator.of(tester.element(find.byType(FocusSetupPage))).pop();
+    // Resolve during the exit animation, while the old page is still mounted.
+    engine.permission.complete();
+    await tester.pumpAndSettle();
+    expect(engine.startRequests, 0);
+    expect(app.focus, isNull);
+    expect(app.lastMinutes, 25);
+    expect(find.byType(TaskListPage), findsOneWidget);
+    expect(find.byType(FocusPage), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+  for (final action in ['继续专注', '休息一下', '返回任务']) {
+    testWidgets('Repeated completion action $action executes once', (
+      tester,
+    ) async {
+      final method = action == '休息一下' ? 'start' : 'dismiss';
+      final engine = DelayedCommandFocusEngine(method);
+      final app = await configure(tester, engine: engine);
+      await app.start(app.tasks.first, 5);
+      engine.elapse(const Duration(minutes: 5));
+      await app.refreshFocus();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('本次专注已结束'));
+      await tester.pumpAndSettle();
+      final button = find.text(action);
+      await reveal(tester, button);
+      engine.calls.clear();
+      engine.delayNext = true;
+      await tester.tap(button);
+      await tester.tap(button);
+      await tester.pump();
+      expect(engine.calls.where((call) => call == method), hasLength(1));
+      expect(
+        tester
+            .widget<FilledButton>(find.widgetWithText(FilledButton, '继续专注'))
+            .onPressed,
+        isNull,
+      );
+      expect(
+        tester
+            .widget<OutlinedButton>(find.widgetWithText(OutlinedButton, '休息一下'))
+            .onPressed,
+        isNull,
+      );
+      expect(
+        tester
+            .widget<TextButton>(find.widgetWithText(TextButton, '返回任务'))
+            .onPressed,
+        isNull,
+      );
+      engine.response.complete();
+      await tester.pumpAndSettle();
+      expect(engine.calls.where((call) => call == method), hasLength(1));
+      if (action == '继续专注') {
+        expect(find.byType(FocusSetupPage), findsOneWidget);
+        Navigator.of(tester.element(find.byType(FocusSetupPage))).pop();
+        await tester.pumpAndSettle();
+        expect(find.byType(TaskListPage), findsOneWidget);
+        expect(find.byType(FocusSetupPage), findsNothing);
+      } else if (action == '休息一下') {
+        expect(app.focus!.kind, 'rest');
+        expect(app.focus!.running, isTrue);
+        expect(find.byType(FocusPage), findsOneWidget);
+      } else {
+        expect(app.focus, isNull);
+        expect(find.byType(TaskListPage), findsOneWidget);
+        expect(find.byType(FocusPage), findsNothing);
+      }
+      expect(tester.takeException(), isNull);
+    });
+  }
+  testWidgets('A failed completion action unlocks the controls for retry', (
+    tester,
+  ) async {
+    final engine = DelayedCommandFocusEngine('start');
+    final app = await configure(tester, engine: engine);
+    await app.start(app.tasks.first, 5);
+    engine.elapse(const Duration(minutes: 5));
+    await app.refreshFocus();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('本次专注已结束'));
+    await tester.pumpAndSettle();
+    final rest = find.widgetWithText(OutlinedButton, '休息一下');
+    await reveal(tester, rest);
+    engine.delayNext = true;
+    await tester.tap(rest);
+    engine.response.completeError(
+      PlatformException(code: 'TEST', message: '请重试'),
+    );
+    await tester.pumpAndSettle();
+    expect(app.focus!.finished, isTrue);
+    expect(tester.widget<OutlinedButton>(rest).onPressed, isNotNull);
+    await tester.tap(rest);
+    await tester.pumpAndSettle();
+    expect(app.focus!.kind, 'rest');
+    expect(app.focus!.running, isTrue);
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets(
+    'Leaving focus during resume permissions keeps the timer paused',
+    (tester) async {
+      final engine = DelayedCommandFocusEngine('permissions');
+      final app = await configure(tester, engine: engine);
+      final task = app.tasks.first;
+      await app.start(task, 25);
+      await app.focusAction('pause');
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, task.title));
+      await tester.pumpAndSettle();
+      engine.delayNext = true;
+      await tester.tap(find.byTooltip('继续'));
+      await tester.tap(find.byTooltip('继续'));
+      await tester.pump();
+      expect(engine.calls.where((call) => call == 'permissions'), hasLength(1));
+      expect(
+        tester
+            .widget<IconButton>(
+              find.ancestor(
+                of: find.byTooltip('继续'),
+                matching: find.byType(IconButton),
+              ),
+            )
+            .onPressed,
+        isNull,
+      );
+      expect(
+        tester
+            .widget<IconButton>(
+              find.ancestor(
+                of: find.byTooltip('提前结束'),
+                matching: find.byType(IconButton),
+              ),
+            )
+            .onPressed,
+        isNull,
+      );
+      Navigator.of(tester.element(find.byType(FocusPage))).pop();
+      engine.response.complete();
+      await tester.pumpAndSettle();
+      expect(engine.calls, isNot(contains('resume')));
+      expect(app.focus!.paused, isTrue);
+      expect(find.byType(TaskListPage), findsOneWidget);
+      expect(find.byType(FocusPage), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+  testWidgets('A delayed completion action keeps a subsequently opened page', (
+    tester,
+  ) async {
+    final engine = DelayedCommandFocusEngine('dismiss');
+    final app = await configure(tester, engine: engine);
+    await app.start(app.tasks.first, 5);
+    engine.elapse(const Duration(minutes: 5));
+    await app.refreshFocus();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('本次专注已结束'));
+    await tester.pumpAndSettle();
+    await reveal(tester, find.text('返回任务'));
+    engine.delayNext = true;
+    await tester.tap(find.text('返回任务'));
+    await tester.pump();
+    final focusContext = tester.element(find.byType(FocusPage));
+    Navigator.of(focusContext).push(
+      appRoute<void>(
+        focusContext,
+        builder: (_) =>
+            TaskDetailPage(controller: app, task: app.tasks[1], isRound: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+    engine.response.complete();
+    await tester.pumpAndSettle();
+    expect(find.byType(TaskDetailPage), findsOneWidget);
+    expect(find.text(app.tasks[1].title), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
   testWidgets('Global focus can change tasks and drops absent startup action', (
     tester,
   ) async {
@@ -520,6 +995,165 @@ void main() {
     expect(task.estimatedMinutes, 17);
     expect(tester.takeException(), isNull);
   });
+  testWidgets('Repeated task save writes once and locks every editor field', (
+    tester,
+  ) async {
+    final repository = DelayedTaskMutationRepository('save');
+    await configure(tester, round: false, repository: repository);
+    await openTaskEditor(tester);
+    await reveal(tester, find.text('不重复'));
+    await tester.tap(find.text('不重复'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('每周').last);
+    await tester.pumpAndSettle();
+    await reveal(tester, find.text('保存'));
+    await tester.tap(find.text('保存'));
+    await tester.tap(find.text('保存'));
+    await tester.pump();
+    expect(repository.calls, 1);
+    expect(
+      tester
+          .widgetList<TextFormField>(find.byType(TextFormField))
+          .every((field) => field.enabled == false),
+      isTrue,
+    );
+    expect(
+      tester
+          .widgetList<DropdownButton<String>>(
+            find.byType(DropdownButton<String>),
+          )
+          .every((field) => field.onChanged == null),
+      isTrue,
+    );
+    expect(
+      tester
+          .widgetList<FilterChip>(find.byType(FilterChip))
+          .every((chip) => chip.onSelected == null),
+      isTrue,
+    );
+    final date = find.widgetWithText(ListTile, '日期');
+    expect(tester.widget<ListTile>(date).onTap, isNull);
+    expect(tester.widget<ListTile>(date).enabled, isFalse);
+    repository.response.complete();
+    await tester.pumpAndSettle();
+    expect(find.byType(TaskEditorPage), findsNothing);
+    expect(find.byType(TaskDetailPage), findsOneWidget);
+    expect(repository.calls, 1);
+    expect(tester.takeException(), isNull);
+  });
+  for (final operation in ['save', 'archive']) {
+    testWidgets('Delayed task $operation keeps a subsequently opened page', (
+      tester,
+    ) async {
+      final repository = DelayedTaskMutationRepository(operation);
+      await configure(tester, round: false, repository: repository);
+      await openTaskEditor(tester);
+      final action = find.text(operation == 'save' ? '保存' : '停止安排');
+      await reveal(tester, action);
+      await tester.tap(action);
+      if (operation == 'archive') {
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.tap(find.widgetWithText(FilledButton, '停止安排'));
+      }
+      await tester.pump();
+      final editor = tester.element(find.byType(TaskEditorPage));
+      Navigator.of(editor).push(
+        MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: Text('后打开的页面')),
+        ),
+      );
+      await tester.pumpAndSettle();
+      repository.response.complete();
+      await tester.pumpAndSettle();
+      expect(repository.calls, 1);
+      expect(find.text('后打开的页面'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
+  testWidgets('Leaving add-to-today preserves a subsequently selected date', (
+    tester,
+  ) async {
+    final repository = DelayedTaskMutationRepository('add');
+    final app = await configure(tester, repository: repository);
+    await app.selectDate(
+      DateTime.parse(app.today).subtract(const Duration(days: 1)),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('街头观察'));
+    await tester.pumpAndSettle();
+    await reveal(tester, find.text('加入今天'));
+    await tester.tap(find.text('加入今天'));
+    await tester.tap(find.text('加入今天'));
+    await tester.pump();
+    expect(repository.calls, 1);
+    Navigator.of(tester.element(find.byType(TaskDetailPage))).pop();
+    await tester.pumpAndSettle();
+    final next = DateTime.parse(app.today).add(const Duration(days: 2));
+    await app.selectDate(next);
+    await tester.pumpAndSettle();
+    repository.response.complete();
+    await tester.pumpAndSettle();
+    expect(app.date, dayKey(next));
+    expect(find.byType(TaskListPage), findsOneWidget);
+    expect(repository.days[app.today]!.first.carriedFromDate, isNotNull);
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets('Delayed task completion keeps a subsequently opened page', (
+    tester,
+  ) async {
+    final store = DelayedTaskStore();
+    final app = await configure(tester, store: store);
+    await tester.tap(find.text('街头观察'));
+    await tester.pumpAndSettle();
+    await reveal(tester, find.text('标记完成'));
+    store.block = true;
+    await tester.tap(find.text('标记完成'));
+    await tester.pump();
+    final detail = tester.element(find.byType(TaskDetailPage));
+    Navigator.of(detail).push(
+      appRoute<void>(
+        detail,
+        builder: (_) => const Scaffold(body: Text('后打开的页面')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    store.response.complete();
+    await tester.pumpAndSettle();
+    expect(app.completed.single.title, '街头观察');
+    expect(find.text('后打开的页面'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+  for (final completed in [false, true]) {
+    testWidgets('Undo restores $completed completion after switching dates', (
+      tester,
+    ) async {
+      const date = '2026-11-09';
+      final repository = FakeRepository();
+      repository.days[date] = fixtures(date);
+      if (completed) {
+        repository.days[date]![0] = repository.days[date]!.first.withCompletion(
+          '2026-11-09 01:00:00.000',
+        );
+      }
+      final original = repository.days[date]!.first;
+      final app = await configure(tester, repository: repository);
+      final toggle = find.byTooltip('${completed ? '恢复待办' : '完成'}街头观察');
+      await reveal(tester, toggle);
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+      final next = DateTime.parse(date).add(const Duration(days: 1));
+      await app.selectDate(next);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('撤销'));
+      await tester.pumpAndSettle();
+      expect(app.date, dayKey(next));
+      expect(repository.days[date]!.first.completedAt, original.completedAt);
+      await app.selectDate(DateTime.parse(date));
+      await tester.pumpAndSettle();
+      expect(app.tasks.first.completedAt, original.completedAt);
+      expect(tester.takeException(), isNull);
+    });
+  }
   testWidgets('Swipe from left edge returns to tasks without resizing cards', (
     tester,
   ) async {

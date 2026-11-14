@@ -13,7 +13,9 @@ PACKAGE ?= com.example.life_assistant
 TARGETS ?= android-arm,android-arm64
 APK ?= build/app/outputs/flutter-apk/app-release.apk
 
-ADB_FLAGS := $(if $(DEVICE), -s $(DEVICE))
+# Pass device names through the environment, never through shell expansion.
+export ADB DEVICE
+ADB_COMMAND = $(PYTHON) scripts/adb_target.py
 
 # 共享服务器安装 dayflow-build.slice 后自动套用内存限制；其他环境直接构建。
 # 需要临时绕过时使用 `make build BUILD_WRAPPER=`。
@@ -68,8 +70,8 @@ build-debug: ## 构建 debug APK（arm + arm64）
 	$(BUILD_WRAPPER) $(FLUTTER) build apk --debug --target-platform $(TARGETS)
 
 install: ## 安装已构建的 APK，不重新构建
-	@test -f $(APK) || { echo '未找到 $(APK)，先执行 make build。' >&2; exit 1; }
-	$(ADB)$(ADB_FLAGS) install -r $(APK)
+	@test -f "$(APK)" || { echo '未找到 APK，先执行 make build。' >&2; exit 1; }
+	$(ADB_COMMAND) install -r "$(APK)"
 
 deploy: build install ## 构建并安装 release APK
 
@@ -77,8 +79,8 @@ devices: ## 列出 adb 设备
 	$(ADB) devices -l
 
 grant: ## 一次性授予勿扰规则与安全设置权限
-	$(ADB)$(ADB_FLAGS) shell cmd notification allow_dnd $(PACKAGE)
-	$(ADB)$(ADB_FLAGS) shell pm grant $(PACKAGE) android.permission.WRITE_SECURE_SETTINGS
+	$(ADB_COMMAND) shell cmd notification allow_dnd "$(PACKAGE)"
+	$(ADB_COMMAND) shell pm grant "$(PACKAGE)" android.permission.WRITE_SECURE_SETTINGS
 
 migrate: ## 增量升级已有数据库（需 PyMySQL）
 	$(PYTHON) scripts/migrate_database.py

@@ -43,6 +43,42 @@ class WorkModeTest {
         assertEquals(45, createWork().snapshot()["water"])
         assertEquals(75, createWork().snapshot()["eyes"])
     }
+    @Test fun disablingWaterDoesNotPostponeTheImminentEyeReminder() {
+        val work = createWork()
+        work.handle("start", emptyMap<Any, Any>())
+        val prefs = context.getSharedPreferences("dayflow_work", Context.MODE_PRIVATE)
+        val eyesDue = prefs.getLong("eyesDue", 0)
+        wall += Duration.ofMinutes(29).toMillis()
+        work.handle("configure", mapOf("water" to 0, "eyes" to 30))
+        assertEquals(eyesDue, prefs.getLong("eyesDue", 0))
+        wall += Duration.ofMinutes(1).toMillis()
+        work.receive()
+        val notifications = org.robolectric.Shadows.shadowOf(context.getSystemService(android.app.NotificationManager::class.java))
+        assertEquals("看看远处，休息眼睛", notifications.getNotification(81).extras.getCharSequence(android.app.Notification.EXTRA_TITLE).toString())
+    }
+    @Test fun changingTheEyeIntervalPreservesTheWaterDeadline() {
+        val work = createWork()
+        work.handle("start", emptyMap<Any, Any>())
+        val prefs = context.getSharedPreferences("dayflow_work", Context.MODE_PRIVATE)
+        val waterDue = prefs.getLong("waterDue", 0)
+        wall += Duration.ofMinutes(10).toMillis()
+        work.handle("configure", mapOf("water" to 60, "eyes" to 45))
+        assertEquals(waterDue, prefs.getLong("waterDue", 0))
+        assertEquals(wall + Duration.ofMinutes(45).toMillis(), prefs.getLong("eyesDue", 0))
+    }
+    @Test fun reenablingWaterStartsItsFullIntervalWithoutResettingEyes() {
+        val work = createWork()
+        work.handle("start", emptyMap<Any, Any>())
+        val prefs = context.getSharedPreferences("dayflow_work", Context.MODE_PRIVATE)
+        val eyesDue = prefs.getLong("eyesDue", 0)
+        wall += Duration.ofMinutes(10).toMillis()
+        work.handle("configure", mapOf("water" to 0, "eyes" to 30))
+        wall += Duration.ofMinutes(5).toMillis()
+        work.handle("configure", mapOf("water" to 60, "eyes" to 30))
+        assertEquals(wall + Duration.ofMinutes(60).toMillis(), prefs.getLong("waterDue", 0))
+        assertEquals(eyesDue, prefs.getLong("eyesDue", 0))
+        assertEquals(60, work.snapshot()["waterInterval"])
+    }
     @Test fun statusNotificationDescribesRemindersAndConfiguredCloseTime() {
         val work = createWork()
         work.handle("rules", mapOf("lunchStart" to 720, "lunchEnd" to 840, "endMinute" to 1200, "autoEnd" to true))
@@ -117,5 +153,52 @@ class WorkModeTest {
         work.receive()
         assertNull(context.getSystemService(android.app.NotificationManager::class.java).getNotificationChannel("work_reminders"))
         assertTrue(prefs.getLong("waterDue",0)>wall)
+    }
+    @Test fun expiredReminderDoesNotJoinAnotherTimelyReminder() {
+        val work = createWork()
+        work.handle("start", emptyMap<Any, Any>())
+        val prefs = context.getSharedPreferences("dayflow_work", Context.MODE_PRIVATE)
+        val notifications = org.robolectric.Shadows.shadowOf(context.getSystemService(android.app.NotificationManager::class.java))
+        for (timely in listOf("water", "eyes")) {
+            val expired = if (timely == "water") "eyes" else "water"
+            prefs.edit().putLong(timely + "Due", wall)
+                .putLong(expired + "Due", wall - Duration.ofMinutes(10).toMillis()).commit()
+            work.receive()
+            val expected = if (timely == "water") "喝口水" else "看看远处，休息眼睛"
+            assertEquals(expected, notifications.getNotification(81).extras.getCharSequence(android.app.Notification.EXTRA_TITLE).toString())
+            assertTrue(prefs.getLong(timely + "Due", 0) > wall)
+            assertTrue(prefs.getLong(expired + "Due", 0) > wall)
+        }
+    }
+    @Test fun wallClockJumpDoesNotLetRemindersInterruptAnUnexpiredFocus() {
+        val work = createWork()
+        work.handle("start", emptyMap<Any, Any>())
+        val prefs = context.getSharedPreferences("dayflow_work", Context.MODE_PRIVATE)
+        prefs.edit().putLong("waterDue", wall).putLong("eyesDue", wall).commit()
+        val boot = android.provider.Settings.Global.getInt(context.contentResolver, android.provider.Settings.Global.BOOT_COUNT, 0)
+        val deadlineElapsed = android.os.SystemClock.elapsedRealtime() + Duration.ofMinutes(5).toMillis()
+        val state = """{"status":"running","kind":"focus","boot":$boot,"deadlineElapsed":$deadlineElapsed,"deadlineWall":${wall + Duration.ofMinutes(5).toMillis()}}"""
+        val focus = context.getSharedPreferences("focus_timer_v1", Context.MODE_PRIVATE)
+        focus.edit().putString("state", state).commit()
+        val dnd = context.getSharedPreferences("focus_dnd_v1", Context.MODE_PRIVATE)
+        dnd.edit().putBoolean("active", true).commit()
+        val lease = context.getSharedPreferences("phone_dnd_sync_v1", Context.MODE_PRIVATE)
+        lease.edit().putString("lease", "OWNED").commit()
+        val notifications = org.robolectric.Shadows.shadowOf(context.getSystemService(android.app.NotificationManager::class.java))
+
+        wall += Duration.ofMinutes(10).toMillis()
+        work.receive()
+        assertNull(notifications.getNotification(81))
+        assertTrue(prefs.getLong("waterDue", 0) > wall)
+        assertTrue(prefs.getLong("eyesDue", 0) > wall)
+
+        org.robolectric.shadows.ShadowSystemClock.advanceBy(Duration.ofMinutes(5))
+        wall += Duration.ofMinutes(5).toMillis()
+        work.receive()
+        assertNotNull(notifications.getNotification(81))
+        assertNull(notifications.getNotification(73))
+        assertEquals(state, focus.getString("state", null))
+        assertTrue(dnd.getBoolean("active", false))
+        assertEquals("OWNED", lease.getString("lease", null))
     }
 }

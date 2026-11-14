@@ -2,6 +2,7 @@ name: Check source and Android build
 
 on:
   push:
+    branches: ['**']
   pull_request:
   workflow_dispatch:
 

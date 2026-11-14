@@ -276,29 +276,24 @@ class _TaskListPageState extends State<TaskListPage> {
 
   void _open(BuildContext context, Widget page) =>
       Navigator.push(context, appRoute<void>(context, builder: (_) => page));
-  void _focus(BuildContext context) {
-    final session = controller.focus;
-    if (session != null) {
+  void _focus(BuildContext context) =>
       _open(context, FocusPage(controller: controller, isRound: isRound));
-    } else {
-      _open(
-        context,
-        FocusSetupPage(
-          controller: controller,
-          isRound: isRound,
-          initialTask: DailyTask(
-            id: '',
-            templateId: '',
-            date: controller.date,
-            title: '自由专注',
-            content: '',
-            space: controller.space,
-          ),
-          allowTaskSelection: true,
-        ),
-      );
-    }
-  }
+  void _startFreeFocus(BuildContext context) => _open(
+    context,
+    FocusSetupPage(
+      controller: controller,
+      isRound: isRound,
+      initialTask: DailyTask(
+        id: '',
+        templateId: '',
+        date: controller.date,
+        title: '自由专注',
+        content: '',
+        space: controller.space,
+      ),
+      allowTaskSelection: true,
+    ),
+  );
 
   @override
   Widget build(BuildContext context) => GestureDetector(
@@ -479,15 +474,8 @@ class _TaskListPageState extends State<TaskListPage> {
                         task.completed ? '已恢复待办' : '已完成',
                         action: SnackBarAction(
                           label: '撤销',
-                          onPressed: () {
-                            final current = controller.tasks
-                                .where((item) => item.id == task.id)
-                                .firstOrNull;
-                            if (current != null &&
-                                current.completed != task.completed) {
-                              controller.toggle(current);
-                            }
-                          },
+                          onPressed: () =>
+                              controller.setCompleted(task, task.completed),
                         ),
                       );
                     }
@@ -523,15 +511,8 @@ class _TaskListPageState extends State<TaskListPage> {
                       task.completed ? '已恢复待办' : '已完成',
                       action: SnackBarAction(
                         label: '撤销',
-                        onPressed: () {
-                          final current = controller.tasks
-                              .where((item) => item.id == task.id)
-                              .firstOrNull;
-                          if (current != null &&
-                              current.completed != task.completed) {
-                            controller.toggle(current);
-                          }
-                        },
+                        onPressed: () =>
+                            controller.setCompleted(task, task.completed),
                       ),
                     );
                   }
@@ -561,13 +542,13 @@ class _TaskListPageState extends State<TaskListPage> {
                   ),
                 ),
               ),
-            if (controller.focus == null)
+            if (controller.focus?.active != true)
               Padding(
                 padding: const EdgeInsets.only(top: 12),
                 child: Tooltip(
                   message: '专注',
                   child: FilledButton.icon(
-                    onPressed: () => _focus(context),
+                    onPressed: () => _startFreeFocus(context),
                     icon: const Icon(Icons.timer_outlined, size: 20),
                     label: const Text('开始自由专注'),
                   ),
@@ -1001,13 +982,52 @@ class TaskDetailPage extends StatefulWidget {
 
 class _TaskDetailPageState extends State<TaskDetailPage> {
   final expanded = <String>{};
-  bool adding = false;
+  bool adding = false, completing = false;
+  bool get busy => adding || completing;
+  bool get isCurrent => mounted && ModalRoute.of(context)?.isCurrent == true;
   @override
   void initState() {
     super.initState();
     if (widget.task.minimumGoal?.trim().isNotEmpty != true &&
         widget.task.completionStandard?.trim().isNotEmpty != true) {
       expanded.add('任务内容');
+    }
+  }
+
+  Future<void> addToToday(DailyTask task) async {
+    if (busy || !isCurrent) return;
+    final target = widget.controller.today;
+    setState(() => adding = true);
+    try {
+      await widget.controller.addToToday(task);
+      if (!isCurrent) return;
+      await widget.controller.selectDate(DateTime.parse(target));
+      if (mounted && isCurrent) {
+        Navigator.popUntil(context, (route) => route.isFirst);
+      }
+    } on FormatException catch (error) {
+      if (mounted && isCurrent) await explainError(context, error.message);
+    } catch (_) {
+      if (mounted && isCurrent) {
+        await explainError(context, '暂时无法加入今天，请联网后重试');
+      }
+    } finally {
+      if (mounted) setState(() => adding = false);
+    }
+  }
+
+  Future<void> toggleCompletion(DailyTask task) async {
+    if (busy || !isCurrent) return;
+    setState(() => completing = true);
+    try {
+      await widget.controller.toggle(task);
+      if (mounted && isCurrent) Navigator.pop(context);
+    } catch (_) {
+      if (mounted && isCurrent) {
+        await explainError(context, '暂时无法更改任务状态，请重试');
+      }
+    } finally {
+      if (mounted) setState(() => completing = false);
     }
   }
 
@@ -1020,26 +1040,29 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
               .where((task) => task.id == widget.task.id)
               .firstOrNull ??
           widget.task;
+      final hasActiveFocus = widget.controller.focus?.active == true;
       Widget focusButton(String position) => KeyedSubtree(
         key: ValueKey('detail-focus-$position'),
         child: FilledButton.icon(
-          onPressed: () => Navigator.push(
-            context,
-            appRoute<void>(
-              context,
-              builder: (_) => widget.controller.focus != null
-                  ? FocusPage(
-                      controller: widget.controller,
-                      isRound: widget.isRound,
-                    )
-                  : FocusSetupPage(
-                      controller: widget.controller,
-                      isRound: widget.isRound,
-                      initialTask: task,
-                    ),
-            ),
-          ),
-          label: Text(widget.controller.focus != null ? '返回专注' : '开始专注'),
+          onPressed: busy
+              ? null
+              : () => Navigator.push(
+                  context,
+                  appRoute<void>(
+                    context,
+                    builder: (_) => hasActiveFocus
+                        ? FocusPage(
+                            controller: widget.controller,
+                            isRound: widget.isRound,
+                          )
+                        : FocusSetupPage(
+                            controller: widget.controller,
+                            isRound: widget.isRound,
+                            initialTask: task,
+                          ),
+                  ),
+                ),
+          label: Text(hasActiveFocus ? '返回专注' : '开始专注'),
           icon: const Icon(Icons.play_arrow_rounded),
         ),
       );
@@ -1057,7 +1080,9 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
           focusButton('top'),
           if (task.space == 'work' && !task.completed)
             TextButton.icon(
-              onPressed: () => widget.controller.toggleWaiting(task),
+              onPressed: busy
+                  ? null
+                  : () => widget.controller.toggleWaiting(task),
               icon: Icon(
                 task.waiting
                     ? Icons.play_arrow_rounded
@@ -1072,27 +1097,7 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
             const SizedBox(height: 8),
             OutlinedButton.icon(
               key: const ValueKey('add-task-to-today'),
-              onPressed: adding
-                  ? null
-                  : () async {
-                      setState(() => adding = true);
-                      try {
-                        await widget.controller.addToToday(task);
-                        if (context.mounted) {
-                          Navigator.popUntil(context, (route) => route.isFirst);
-                        }
-                      } on FormatException catch (error) {
-                        if (context.mounted) {
-                          await explainError(context, error.message);
-                        }
-                      } catch (_) {
-                        if (context.mounted) {
-                          await explainError(context, '暂时无法加入今天，请联网后重试');
-                        }
-                      } finally {
-                        if (mounted) setState(() => adding = false);
-                      }
-                    },
+              onPressed: busy ? null : () => addToToday(task),
               icon: const Icon(Icons.today_rounded, size: 18),
               label: Text(adding ? '正在加入' : '加入今天'),
             ),
@@ -1130,23 +1135,24 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
             ],
           const SizedBox(height: 16),
           OutlinedButton(
-            onPressed: () async {
-              await widget.controller.toggle(task);
-              if (context.mounted) Navigator.pop(context);
-            },
+            onPressed: busy ? null : () => toggleCompletion(task),
             child: Text(task.completed ? '恢复待办' : '标记完成'),
           ),
           if (!widget.isRound) ...[
             const SizedBox(height: 8),
             TextButton(
-              onPressed: () => Navigator.push(
-                context,
-                appRoute<void>(
-                  context,
-                  builder: (_) =>
-                      TaskEditorPage(controller: widget.controller, task: task),
-                ),
-              ),
+              onPressed: busy
+                  ? null
+                  : () => Navigator.push(
+                      context,
+                      appRoute<void>(
+                        context,
+                        builder: (_) => TaskEditorPage(
+                          controller: widget.controller,
+                          task: task,
+                        ),
+                      ),
+                    ),
               child: const Text('编辑任务'),
             ),
           ],
@@ -1230,12 +1236,14 @@ class _FocusSetupPageState extends State<FocusSetupPage> {
   }
 
   Future<void> start() async {
+    if (busy) return;
     final selectedMinutes = ((rotaryTarget ?? (minutes ~/ 5 - 1)) + 1) * 5;
     setState(() => busy = true);
     try {
       await widget.controller.engine.call('permissions');
+      if (!mounted || ModalRoute.of(context)?.isCurrent != true) return;
       await widget.controller.start(task, selectedMinutes);
-      if (!mounted) return;
+      if (!mounted || ModalRoute.of(context)?.isCurrent != true) return;
       Navigator.pushReplacement(
         context,
         appRoute<void>(
@@ -1432,28 +1440,49 @@ class TaskPickerPage extends StatelessWidget {
 String timerText(int seconds) =>
     '${(seconds ~/ 60).toString().padLeft(2, '0')}:${(seconds % 60).toString().padLeft(2, '0')}';
 
-class FocusPage extends StatelessWidget {
+class FocusPage extends StatefulWidget {
   const FocusPage({super.key, required this.controller, required this.isRound});
   final AppController controller;
   final bool isRound;
 
-  Future<bool> _action(BuildContext context, String method) async {
+  @override
+  State<FocusPage> createState() => _FocusPageState();
+}
+
+class _FocusPageState extends State<FocusPage> {
+  AppController get controller => widget.controller;
+  bool get isRound => widget.isRound;
+  bool busy = false;
+  bool get isCurrent => mounted && ModalRoute.of(context)?.isCurrent == true;
+
+  Future<void> _run(
+    Future<void> Function() action, {
+    String errorMessage = '操作未完成，请重试',
+  }) async {
+    if (busy || !isCurrent) return;
+    setState(() => busy = true);
     try {
-      if (method == 'resume' && controller.focus?.kind == 'focus') {
-        await controller.engine.call('permissions');
-      }
-      await controller.focusAction(method);
-      return true;
+      await action();
     } on PlatformException catch (error) {
-      if (context.mounted) {
+      if (mounted && isCurrent) {
         await explainError(context, error.message ?? '操作未完成');
       }
     } catch (_) {
-      if (context.mounted) {
-        await explainError(context, '操作未完成，请重试');
+      if (mounted && isCurrent) {
+        await explainError(context, errorMessage);
       }
+    } finally {
+      if (mounted) setState(() => busy = false);
     }
-    return false;
+  }
+
+  Future<bool> _action(String method) async {
+    if (method == 'resume' && controller.focus?.kind == 'focus') {
+      await controller.engine.call('permissions');
+      if (!isCurrent) return false;
+    }
+    await controller.focusAction(method);
+    return true;
   }
 
   DailyTask _task() {
@@ -1479,33 +1508,48 @@ class FocusPage extends StatelessWidget {
         tooltip: '提前结束',
         style: IconButton.styleFrom(fixedSize: const Size(48, 48)),
         icon: const Icon(Icons.stop_rounded, size: 24),
-        onPressed: () async {
-          final stop = await appDialog<bool>(
-            context,
-            title: '结束本次专注？',
-            actions: (dialog) => [
-              FilledButton(
-                onPressed: () => Navigator.pop(dialog, false),
-                child: const Text('继续专注'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(dialog, true),
-                child: const Text('结束专注'),
-              ),
-            ],
-          );
-          if (stop == true && context.mounted) {
-            final stopped = await _action(context, 'stop');
-            if (stopped && context.mounted) Navigator.pop(context);
-          }
-        },
+        onPressed: busy
+            ? null
+            : () => _run(() async {
+                final stop = await appDialog<bool>(
+                  context,
+                  title: '结束本次专注？',
+                  actions: (dialog) => [
+                    FilledButton(
+                      onPressed: () {
+                        if (ModalRoute.of(dialog)?.isCurrent == true) {
+                          Navigator.pop(dialog, false);
+                        }
+                      },
+                      child: const Text('继续专注'),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        if (ModalRoute.of(dialog)?.isCurrent == true) {
+                          Navigator.pop(dialog, true);
+                        }
+                      },
+                      child: const Text('结束专注'),
+                    ),
+                  ],
+                );
+                if (stop == true && isCurrent) {
+                  final stopped = await _action('stop');
+                  if (stopped && context.mounted && isCurrent) {
+                    Navigator.pop(context);
+                  }
+                }
+              }),
       ),
       const SizedBox(width: 16),
       IconButton.filled(
         tooltip: controller.focus!.paused ? '继续' : '暂停',
         style: IconButton.styleFrom(fixedSize: const Size(48, 48)),
-        onPressed: () =>
-            _action(context, controller.focus!.paused ? 'resume' : 'pause'),
+        onPressed: busy
+            ? null
+            : () => _run(() async {
+                await _action(controller.focus!.paused ? 'resume' : 'pause');
+              }),
         icon: Icon(
           controller.focus!.paused
               ? Icons.play_arrow_rounded
@@ -1534,23 +1578,25 @@ class FocusPage extends StatelessWidget {
         return AppPage(
           isRound: isRound,
           bottomAction: WearEdgeButton(
-            onPressed: () async {
-              final task = _task();
-              if (!await _action(context, 'dismiss')) return;
-              if (context.mounted) {
-                Navigator.pushReplacement(
-                  context,
-                  appRoute<void>(
-                    context,
-                    builder: (_) => FocusSetupPage(
-                      controller: controller,
-                      isRound: isRound,
-                      initialTask: task,
-                    ),
-                  ),
-                );
-              }
-            },
+            onPressed: busy
+                ? null
+                : () => _run(() async {
+                    final task = _task();
+                    if (!await _action('dismiss')) return;
+                    if (context.mounted && isCurrent) {
+                      Navigator.pushReplacement(
+                        context,
+                        appRoute<void>(
+                          context,
+                          builder: (_) => FocusSetupPage(
+                            controller: controller,
+                            isRound: isRound,
+                            initialTask: task,
+                          ),
+                        ),
+                      );
+                    }
+                  }),
             label: '继续专注',
             icon: Icons.play_arrow_rounded,
           ),
@@ -1581,23 +1627,23 @@ class FocusPage extends StatelessWidget {
             const SizedBox(height: 16),
             if (focus.kind != 'rest')
               OutlinedButton(
-                onPressed: () async {
-                  try {
-                    await controller.start(_task(), 5, rest: true);
-                  } catch (_) {
-                    if (context.mounted) {
-                      await explainError(context, '暂时无法开始休息');
-                    }
-                  }
-                },
+                onPressed: busy
+                    ? null
+                    : () => _run(() async {
+                        await controller.start(_task(), 5, rest: true);
+                      }, errorMessage: '暂时无法开始休息'),
                 child: const Text('休息一下'),
               ),
             TextButton(
-              onPressed: () async {
-                if (await _action(context, 'dismiss') && context.mounted) {
-                  Navigator.pop(context);
-                }
-              },
+              onPressed: busy
+                  ? null
+                  : () => _run(() async {
+                      if (await _action('dismiss') &&
+                          context.mounted &&
+                          isCurrent) {
+                        Navigator.pop(context);
+                      }
+                    }),
               child: const Text('返回任务'),
             ),
           ],
@@ -1834,6 +1880,7 @@ class _TaskEditorPageState extends State<TaskEditorPage> {
   late final String templateId;
   final Set<int> weekdays = {};
   bool busy = false;
+  bool get isCurrent => mounted && ModalRoute.of(context)?.isCurrent == true;
   @override
   void initState() {
     super.initState();
@@ -1871,6 +1918,7 @@ class _TaskEditorPageState extends State<TaskEditorPage> {
   }
 
   Future<void> save() async {
+    if (busy || !isCurrent) return;
     if (!form.currentState!.validate()) return;
     if (space == 'life' && recurrence == 'weekly' && weekdays.isEmpty) {
       await explainError(context, '请选择重复的星期');
@@ -1899,9 +1947,50 @@ class _TaskEditorPageState extends State<TaskEditorPage> {
         ),
         existing: widget.task,
       );
-      if (mounted) Navigator.pop(context);
+      if (mounted && isCurrent) Navigator.pop(context);
     } catch (_) {
-      if (mounted) await explainError(context, '暂时无法保存，请检查网络后重试');
+      if (mounted && isCurrent) {
+        await explainError(context, '暂时无法保存，请检查网络后重试');
+      }
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> archive() async {
+    if (busy || !isCurrent) return;
+    setState(() => busy = true);
+    try {
+      final confirmed = await appDialog<bool>(
+        context,
+        title: '停止安排这项任务？',
+        message: '已完成和专注记录会保留。',
+        actions: (dialog) => [
+          TextButton(
+            onPressed: () {
+              if (ModalRoute.of(dialog)?.isCurrent == true) {
+                Navigator.pop(dialog, false);
+              }
+            },
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (ModalRoute.of(dialog)?.isCurrent == true) {
+                Navigator.pop(dialog, true);
+              }
+            },
+            child: const Text('停止安排'),
+          ),
+        ],
+      );
+      if (confirmed != true || !isCurrent) return;
+      await widget.controller.archive(widget.task!);
+      if (mounted && isCurrent) {
+        Navigator.popUntil(context, (route) => route.isFirst);
+      }
+    } catch (_) {
+      if (mounted && isCurrent) await explainError(context, '暂时无法保存，请重试');
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -1926,6 +2015,7 @@ class _TaskEditorPageState extends State<TaskEditorPage> {
           children: [
             TextFormField(
               controller: title,
+              enabled: !busy,
               maxLength: 200,
               decoration: const InputDecoration(labelText: '任务标题'),
               validator: (value) =>
@@ -1934,6 +2024,7 @@ class _TaskEditorPageState extends State<TaskEditorPage> {
             const SizedBox(height: 12),
             TextFormField(
               controller: content,
+              enabled: !busy,
               minLines: 4,
               maxLines: null,
               decoration: const InputDecoration(
@@ -1946,6 +2037,7 @@ class _TaskEditorPageState extends State<TaskEditorPage> {
             const SizedBox(height: 12),
             TextFormField(
               controller: tutorial,
+              enabled: !busy,
               minLines: 3,
               maxLines: null,
               decoration: const InputDecoration(
@@ -1962,6 +2054,7 @@ class _TaskEditorPageState extends State<TaskEditorPage> {
               const SizedBox(height: 12),
               TextFormField(
                 controller: field.$1,
+                enabled: !busy,
                 minLines: 2,
                 maxLines: null,
                 decoration: InputDecoration(
@@ -1974,6 +2067,7 @@ class _TaskEditorPageState extends State<TaskEditorPage> {
             const SizedBox(height: 12),
             TextFormField(
               controller: estimate,
+              enabled: !busy,
               keyboardType: TextInputType.number,
               inputFormatters: [FilteringTextInputFormatter.digitsOnly],
               decoration: const InputDecoration(
@@ -1994,18 +2088,23 @@ class _TaskEditorPageState extends State<TaskEditorPage> {
       const SizedBox(height: 16),
       if (space == 'life')
         ListTile(
+          enabled: !busy,
           contentPadding: EdgeInsets.zero,
           title: const Text('日期'),
           trailing: Text(date),
-          onTap: () async {
-            final picked = await showDatePicker(
-              context: context,
-              initialDate: DateTime.parse(date),
-              firstDate: DateTime(2020),
-              lastDate: DateTime(2100),
-            );
-            if (picked != null) setState(() => date = dayKey(picked));
-          },
+          onTap: busy
+              ? null
+              : () async {
+                  final picked = await showDatePicker(
+                    context: context,
+                    initialDate: DateTime.parse(date),
+                    firstDate: DateTime(2020),
+                    lastDate: DateTime(2100),
+                  );
+                  if (picked != null && isCurrent && !busy) {
+                    setState(() => date = dayKey(picked));
+                  }
+                },
         ),
       if (space == 'life')
         DropdownButtonFormField<String>(
@@ -2016,7 +2115,9 @@ class _TaskEditorPageState extends State<TaskEditorPage> {
             DropdownMenuItem(value: 'daily', child: Text('每天')),
             DropdownMenuItem(value: 'weekly', child: Text('每周')),
           ],
-          onChanged: (value) => setState(() => recurrence = value!),
+          onChanged: busy
+              ? null
+              : (value) => setState(() => recurrence = value!),
         ),
       if (space == 'life' && recurrence == 'weekly')
         Padding(
@@ -2028,13 +2129,15 @@ class _TaskEditorPageState extends State<TaskEditorPage> {
                 FilterChip(
                   label: Text(['一', '二', '三', '四', '五', '六', '日'][day - 1]),
                   selected: weekdays.contains(day),
-                  onSelected: (value) => setState(() {
-                    if (value) {
-                      weekdays.add(day);
-                    } else {
-                      weekdays.remove(day);
-                    }
-                  }),
+                  onSelected: busy
+                      ? null
+                      : (value) => setState(() {
+                          if (value) {
+                            weekdays.add(day);
+                          } else {
+                            weekdays.remove(day);
+                          }
+                        }),
                 ),
             ],
           ),
@@ -2051,39 +2154,7 @@ class _TaskEditorPageState extends State<TaskEditorPage> {
       ),
       if (widget.task != null)
         TextButton(
-          onPressed: busy
-              ? null
-              : () async {
-                  final confirmed = await appDialog<bool>(
-                    context,
-                    title: '停止安排这项任务？',
-                    message: '已完成和专注记录会保留。',
-                    actions: (dialog) => [
-                      TextButton(
-                        onPressed: () => Navigator.pop(dialog, false),
-                        child: const Text('取消'),
-                      ),
-                      FilledButton(
-                        onPressed: () => Navigator.pop(dialog, true),
-                        child: const Text('停止安排'),
-                      ),
-                    ],
-                  );
-                  if (confirmed != true) return;
-                  setState(() => busy = true);
-                  try {
-                    await widget.controller.archive(widget.task!);
-                    if (context.mounted) {
-                      Navigator.popUntil(context, (route) => route.isFirst);
-                    }
-                  } catch (_) {
-                    if (context.mounted) {
-                      await explainError(context, '暂时无法保存，请重试');
-                    }
-                  } finally {
-                    if (mounted) setState(() => busy = false);
-                  }
-                },
+          onPressed: busy ? null : archive,
           child: const Text('停止安排', style: TextStyle(color: AppColors.error)),
         ),
     ],

@@ -22,9 +22,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /** The OS alarm and persisted state survive the Flutter engine and screen turning off. */
-class FocusTimer(private val context: Context) {
+class FocusTimer(private val context: Context, private val clock: () -> Long = System::currentTimeMillis) {
     private val prefs = context.getSharedPreferences("focus_timer_v1", Context.MODE_PRIVATE)
-    private val dnd = FocusDnd(context)
+    private val dnd by lazy { FocusDnd(context) }
     private val alarms = context.getSystemService(AlarmManager::class.java)
     private val notifications = context.getSystemService(NotificationManager::class.java)
     private val boot: Int get() = Settings.Global.getInt(context.contentResolver, Settings.Global.BOOT_COUNT, 0)
@@ -40,7 +40,12 @@ class FocusTimer(private val context: Context) {
         if (value.getString("status") != "running") return value.getLong("remainingMillis")
         return if (value.optInt("boot", -1) == boot) {
             (value.getLong("deadlineElapsed") - SystemClock.elapsedRealtime()).coerceAtLeast(0)
-        } else (value.getLong("deadlineWall") - System.currentTimeMillis()).coerceAtLeast(0)
+        } else (value.getLong("deadlineWall") - clock()).coerceAtLeast(0)
+    }
+    /** Read-only status for reminders; settling the timer belongs to its alarm. */
+    fun isRunningFocus(): Boolean {
+        val value = state() ?: return false
+        return value.optString("status") == "running" && value.optString("kind") == "focus" && remaining(value) > 0
     }
     private fun cancel(value: JSONObject) { alarms.cancel(alarmIntent(value.getString("id"))) }
     private fun schedule(value: JSONObject) {
@@ -78,7 +83,7 @@ class FocusTimer(private val context: Context) {
             .setTimeoutAfter(if (finished) 5000L else 0L)
             .setOnlyAlertOnce(true).setCategory(if (finished) Notification.CATEGORY_ALARM else Notification.CATEGORY_PROGRESS)
         if (!finished && value.getString("status") == "running") {
-            builder.setWhen(System.currentTimeMillis() + remaining(value)).setUsesChronometer(true).setChronometerCountDown(true)
+            builder.setWhen(clock() + remaining(value)).setUsesChronometer(true).setChronometerCountDown(true)
         }
         if (!finished && value.getString("status") == "running") {
             OngoingActivity.Builder(context, 73, builder).setStaticIcon(R.drawable.ic_notification).setTouchIntent(open).build().apply(context)
@@ -91,11 +96,18 @@ class FocusTimer(private val context: Context) {
         val planned = value.getInt("plannedSeconds")
         val actual = if (status == "completed") planned else ((planned * 1000L - remaining(value)) / 1000).toInt().coerceIn(0, planned)
         if (value.getString("kind") == "focus" && actual < 180) return
+        val endedAt = if (status == "completed") {
+            // Alarm delivery can be late. Keep the timer's actual deadline,
+            // including pauses, rather than extending it to delivery time.
+            if (value.optInt("boot", -1) == boot) {
+                clock() - (SystemClock.elapsedRealtime() - value.getLong("deadlineElapsed")).coerceAtLeast(0)
+            } else value.getLong("deadlineWall")
+        } else clock()
         existing.put(JSONObject().put("id", value.getString("id"))
             .put("space", value.optString("space", "life")).put("taskId", value.getString("taskId")).put("taskTitle", value.getString("taskTitle"))
             .put("kind", value.getString("kind")).put("plannedSeconds", planned)
             .put("actualSeconds", actual).put("status", status)
-            .put("startedAt", value.getLong("startedAt")).put("endedAt", System.currentTimeMillis()))
+            .put("startedAt", value.getLong("startedAt")).put("endedAt", endedAt))
         check(prefs.edit().putString("records", existing.toString()).commit())
     }
     fun finish(expectedId: String? = null) {
@@ -118,12 +130,11 @@ class FocusTimer(private val context: Context) {
         val value = state() ?: run { dnd.release(); return }
         if (value.getString("status") != "running") { dnd.release(); return }
         val left = remaining(value)
+        if (left == 0L) { finish(); return }
         value.put("boot", boot).put("deadlineElapsed", SystemClock.elapsedRealtime() + left)
         save(value)
-        if (left == 0L) finish() else {
-            if (value.getString("kind") == "focus" && dnd.granted) runCatching { dnd.acquire() }
-            schedule(value); notify(value)
-        }
+        if (value.getString("kind") == "focus" && dnd.granted) runCatching { dnd.acquire() }
+        schedule(value); notify(value)
     }
     fun snapshot(): Map<String, Any?> {
         finish()
@@ -147,7 +158,7 @@ class FocusTimer(private val context: Context) {
                 require(minutes in 5..180 && minutes % 5 == 0)
                 val kind = args["kind"] as String
                 require(kind == "focus" || kind == "rest")
-                val now = System.currentTimeMillis()
+                val now = clock()
                 val value = JSONObject().put("id", args["id"]).put("taskId", args["taskId"])
                     .put("space", args["space"] ?: "life").put("taskTitle", args["taskTitle"]).put("startAction", args["startAction"] ?: JSONObject.NULL).put("kind", kind).put("status", "running")
                     .put("plannedSeconds", minutes * 60).put("remainingMillis", minutes * 60000L)
@@ -175,7 +186,7 @@ class FocusTimer(private val context: Context) {
                 val value = state()
                 if (value != null && value.getString("status") == "paused") {
                     val left = value.getLong("remainingMillis")
-                    value.put("status", "running").put("deadlineWall", System.currentTimeMillis() + left)
+                    value.put("status", "running").put("deadlineWall", clock() + left)
                         .put("deadlineElapsed", SystemClock.elapsedRealtime() + left).put("boot", boot)
                     schedule(value)
                     try {

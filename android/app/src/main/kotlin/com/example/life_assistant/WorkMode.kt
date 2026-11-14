@@ -5,7 +5,6 @@ import androidx.wear.ongoing.OngoingActivity
 import android.app.*
 import android.content.*
 import android.os.Build
-import org.json.JSONObject
 import java.util.Calendar
 import java.util.TimeZone
 
@@ -51,12 +50,14 @@ class WorkMode(private val context: Context, private val clock: () -> Long = Sys
                 val water = (args["water"] as Number).toInt(); val eyes = (args["eyes"] as Number).toInt()
                 require(water in 0..180 && eyes in 0..180 && water % 5 == 0 && eyes % 5 == 0)
                 val editor = prefs.edit().putInt("water", water).putInt("eyes", eyes)
+                // Editing one reminder must not postpone the other one's deadline.
+                if (water != prefs.getInt("water", 60)) editor.putLong("waterDue", clock() + water * 60000L)
+                if (eyes != prefs.getInt("eyes", 30)) editor.putLong("eyesDue", clock() + eyes * 60000L)
                 if (water > 0) editor.putInt("waterInterval", water)
                 else if (prefs.getInt("water", 60) > 0) editor.putInt("waterInterval", prefs.getInt("water", 60))
                 if (eyes > 0) editor.putInt("eyesInterval", eyes)
                 else if (prefs.getInt("eyes", 30) > 0) editor.putInt("eyesInterval", prefs.getInt("eyes", 30))
                 check(editor.commit())
-                resetDue()
             }
         }
         schedule()
@@ -113,20 +114,19 @@ class WorkMode(private val context: Context, private val clock: () -> Long = Sys
         val current = now()
         val minute = current.get(Calendar.HOUR_OF_DAY)*60+current.get(Calendar.MINUTE)
         if (quietEnd(minute) != null) { schedule(); return }
-        val focus = context.getSharedPreferences("focus_timer_v1", Context.MODE_PRIVATE).getString("state",null)?.let { JSONObject(it) }
-        val focused = focus?.optString("status") == "running" && focus.optString("kind") == "focus" && focus.optLong("deadlineWall") > clock()
+        val focused = FocusTimer(context, clock).isRunningFocus()
         val due = listOf("water", "eyes").filter { prefs.getInt(it,if(it=="water")60 else 30)>0 && prefs.getLong(it+"Due",0) <= clock()+60000 }
         if (focused) {
             val edit=prefs.edit(); for(key in due) edit.putLong(key+"Due", minOf(end(),clock()+60000)); check(edit.commit())
         } else if (due.isNotEmpty()) {
             // An alarm delivered very late is skipped rather than replayed in a burst.
-            val timely = due.any { clock()-prefs.getLong(it+"Due",0)<5*60000 }
-            if (timely) {
+            val timely = due.filter { clock()-prefs.getLong(it+"Due",0)<5*60000 }
+            if (timely.isNotEmpty()) {
                 val nm=context.getSystemService(NotificationManager::class.java)
                 val channel=NotificationChannel("work_reminders","工作休息提醒",NotificationManager.IMPORTANCE_HIGH)
                 channel.setSound(null,null); channel.enableVibration(true); channel.vibrationPattern=longArrayOf(0,80)
                 nm.createNotificationChannel(channel)
-                val message=due.joinToString("，") { if(it=="water") "喝口水" else "看看远处，休息眼睛" }
+                val message=timely.joinToString("，") { if(it=="water") "喝口水" else "看看远处，休息眼睛" }
                 val open=PendingIntent.getActivity(context,81,Intent(context,MainActivity::class.java),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
                 val notification=Notification.Builder(context,"work_reminders").setSmallIcon(R.drawable.ic_notification).setLargeIcon(android.graphics.BitmapFactory.decodeResource(context.resources, R.mipmap.ic_launcher)).setContentTitle(message).setContentIntent(open).setAutoCancel(true).setTimeoutAfter(5000).build()
                 try { nm.notify(81,notification) } catch (_: SecurityException) { }

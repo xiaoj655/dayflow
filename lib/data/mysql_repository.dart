@@ -10,8 +10,14 @@ import '../models/task.dart';
 import 'task_repository.dart';
 
 class MySqlTaskRepository implements TaskRepository {
-  MySqlTaskRepository(this.config);
+  MySqlTaskRepository(
+    this.config, {
+    this.requestTimeout = const Duration(seconds: 15),
+    this.connectionFactory,
+  });
   final Map<String, dynamic> config;
+  final Duration requestTimeout;
+  final Future<MySQLConnection> Function()? connectionFactory;
   Future<void> _tail = Future.value();
   static Future<MySqlTaskRepository> load() async => MySqlTaskRepository(
     jsonDecode(await rootBundle.loadString('config/database.json'))
@@ -23,35 +29,33 @@ class MySqlTaskRepository implements TaskRepository {
     _tail = _tail
         .then((_) async {
           MySQLConnection? connection;
-          try {
-            final opening = MySQLConnection.createConnection(
-              host: config['host'] as String,
-              port: config['port'] as int,
-              userName: config['user'] as String,
-              password: config['password'] as String,
-              databaseName: config['database'] as String,
-              secure: true,
-              onBadCertificate: (X509Certificate cert) =>
-                  sha256.convert(cert.der).toString() ==
-                      config['certificateSha256'] &&
-                  DateTime.now().isAfter(cert.startValidity) &&
-                  DateTime.now().isBefore(cert.endValidity),
-            );
-            var expired = false;
-            unawaited(
-              opening.then((lateConnection) {
-                if (expired) unawaited(lateConnection.close());
-              }, onError: (Object _) {}),
-            );
-            connection = await opening.timeout(
-              const Duration(seconds: 8),
-              onTimeout: () {
-                expired = true;
-                throw TimeoutException('Database connection timed out');
-              },
-            );
-            await connection.connect(timeoutMs: 8000);
-            final socket = connection.getSocket();
+          var expired = false;
+          Future<T> execute() async {
+            final opened =
+                await (connectionFactory?.call() ??
+                    MySQLConnection.createConnection(
+                      host: config['host'] as String,
+                      port: config['port'] as int,
+                      userName: config['user'] as String,
+                      password: config['password'] as String,
+                      databaseName: config['database'] as String,
+                      secure: true,
+                      onBadCertificate: (X509Certificate cert) =>
+                          sha256.convert(cert.der).toString() ==
+                              config['certificateSha256'] &&
+                          DateTime.now().isAfter(cert.startValidity) &&
+                          DateTime.now().isBefore(cert.endValidity),
+                    ));
+            connection = opened;
+            // A timed-out socket creation can still finish later. It must not
+            // authenticate or execute a stale request after the queue advances.
+            if (expired) {
+              opened.getSocket().destroy();
+              throw TimeoutException('Database request timed out');
+            }
+            await opened.connect(timeoutMs: 8000);
+            if (expired) throw TimeoutException('Database request timed out');
+            final socket = opened.getSocket();
             if (socket is! SecureSocket ||
                 socket.peerCertificate == null ||
                 sha256.convert(socket.peerCertificate!.der).toString() !=
@@ -60,12 +64,34 @@ class MySqlTaskRepository implements TaskRepository {
                 'Database certificate does not match the configured pin',
               );
             }
-            await connection.execute("SET time_zone = '+00:00'");
-            result.complete(await action(connection));
+            await opened.execute("SET time_zone = '+00:00'");
+            if (expired) throw TimeoutException('Database request timed out');
+            return action(opened);
+          }
+
+          try {
+            result.complete(
+              await execute().timeout(
+                requestTimeout,
+                onTimeout: () {
+                  expired = true;
+                  connection?.getSocket().destroy();
+                  throw TimeoutException('Database request timed out');
+                },
+              ),
+            );
           } catch (error, stack) {
             result.completeError(error, stack);
           } finally {
-            await connection?.close();
+            if (connection != null && !expired) {
+              try {
+                await connection!.close().timeout(const Duration(seconds: 1));
+              } catch (_) {
+                // The client cannot gracefully close during a failed handshake
+                // or an unfinished query. Always release the underlying socket.
+                connection!.getSocket().destroy();
+              }
+            }
           }
         })
         .catchError((Object _) {});

@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:life_assistant/controllers/app_controller.dart';
 import 'package:life_assistant/data/local_store.dart';
@@ -14,6 +16,51 @@ class _FailFetchAfterUploadRepository extends FakeRepository {
   Future<List<DailyTask>> fetchDay(String date) {
     if (failFetch) throw StateError('fetch offline after successful upload');
     return super.fetchDay(date);
+  }
+}
+
+class _AckFailsOnceEngine extends FakeFocusEngine {
+  bool failNextAck = false;
+  int ackCalls = 0;
+
+  @override
+  Future<Map<String, dynamic>> call(
+    String method, [
+    Map<String, dynamic>? arguments,
+  ]) async {
+    if (method == 'ack') {
+      ackCalls++;
+      if (failNextAck) {
+        failNextAck = false;
+        throw PlatformException(
+          code: 'FOCUS_ERROR',
+          message: 'Journal acknowledgement temporarily failed',
+        );
+      }
+    }
+    return super.call(method, arguments);
+  }
+}
+
+class _FailingWriteStore extends MemoryStore {
+  bool failWrites = false;
+
+  @override
+  Future<void> write(String key, String value) {
+    if (failWrites) throw StateError('Local cache unavailable');
+    return super.write(key, value);
+  }
+}
+
+class _DelayedCarryRepository extends FakeRepository {
+  final carrying = Completer<void>();
+  final release = Completer<void>();
+
+  @override
+  Future<void> addToToday(DailyTask task, String today) async {
+    carrying.complete();
+    await release.future;
+    await super.addToToday(task, today);
   }
 }
 
@@ -229,6 +276,150 @@ void main() {
     expect(app.focusCount(app.tasks.first), 1);
     app.dispose();
   });
+  for (final restart in [false, true]) {
+    test(
+      'Replayed native records do not count an uploaded focus twice (restart=$restart)',
+      () async {
+        final repo = _FailFetchAfterUploadRepository();
+        final store = MemoryStore();
+        final engine = _AckFailsOnceEngine();
+        AppController create() =>
+            AppController(repository: repo, store: store, engine: engine);
+        var app = create();
+        await app.initialize();
+        await app.refresh();
+        await app.start(app.tasks.first, 5);
+        engine.elapse(const Duration(minutes: 5));
+        repo.failFetch = true;
+        engine.failNextAck = true;
+        await app.refreshFocus();
+        // A concurrent refresh can upload the durably cached record while its
+        // native journal entry still awaits acknowledgement.
+        await app.refresh();
+        expect(repo.sessions.length, 1);
+        expect(engine.records.length, 1);
+        expect(app.focusCount(app.tasks.first), 1);
+        if (restart) {
+          app.dispose();
+          app = create();
+          await app.initialize();
+        } else {
+          await app.refreshFocus();
+        }
+        await app.refresh();
+        expect(engine.records, isEmpty);
+        expect(repo.sessions.length, 1);
+        expect(app.focusCount(app.tasks.first), 1);
+        app.dispose();
+      },
+    );
+  }
+  test(
+    'Unsent native records remain retryable across replay and restart',
+    () async {
+      final repo = FakeRepository();
+      final store = MemoryStore();
+      final engine = _AckFailsOnceEngine();
+      AppController create() =>
+          AppController(repository: repo, store: store, engine: engine);
+      var app = create();
+      await app.initialize();
+      await app.refresh();
+      await app.start(app.tasks.first, 5);
+      engine.elapse(const Duration(minutes: 5));
+      repo.fail = true;
+      for (var attempt = 0; attempt < 2; attempt++) {
+        engine.failNextAck = true;
+        await app.refreshFocus();
+        await app.refresh();
+        expect(app.focusCount(app.tasks.first), 1);
+        expect(repo.sessions, isEmpty);
+        expect(engine.records.length, 1);
+      }
+      app.dispose();
+      app = create();
+      await app.initialize();
+      await app.refresh();
+      expect(app.focusCount(app.tasks.first), 1);
+      expect(repo.sessions, isEmpty);
+      expect(engine.records, isEmpty);
+      repo.fail = false;
+      await app.refresh();
+      await app.refresh();
+      expect(repo.sessions.length, 1);
+      expect(app.focusCount(app.tasks.first), 1);
+      app.dispose();
+    },
+  );
+  test(
+    'Accepted focus starts despite an older journal acknowledgement failure',
+    () async {
+      final repo = FakeRepository();
+      final store = MemoryStore();
+      final engine = _AckFailsOnceEngine();
+      final app = AppController(repository: repo, store: store, engine: engine);
+      await app.initialize();
+      await app.refresh();
+      final first = app.tasks.first;
+      final second = app.tasks[1];
+      await app.start(first, 5);
+      engine.elapse(const Duration(minutes: 5));
+      engine.failNextAck = true;
+      var acceptedTransitions = 0;
+      String? observedId;
+      app.addListener(() {
+        final focus = app.focus;
+        if (focus?.taskId == second.id && focus?.id != observedId) {
+          observedId = focus?.id;
+          acceptedTransitions++;
+        }
+      });
+      await app.start(second, 5);
+      expect(app.focus!.running, isTrue);
+      expect(app.focus!.taskId, second.id);
+      expect(engine.state!['taskId'], second.id);
+      expect(acceptedTransitions, 1);
+      expect(engine.records.length, 1);
+      await app.refresh();
+      expect(repo.sessions.length, 1);
+      expect(repo.sessions.values.single['taskId'], first.id);
+      expect(app.focusCount(app.tasks.first), 1);
+      await app.refreshFocus();
+      await app.refresh();
+      expect(engine.records, isEmpty);
+      expect(engine.ackCalls, 2);
+      expect(repo.sessions.length, 1);
+      expect(app.focusCount(app.tasks.first), 1);
+      expect(acceptedTransitions, 1);
+      app.dispose();
+    },
+  );
+  test(
+    'Failed local persistence is reported before any journal acknowledgement',
+    () async {
+      final repo = FakeRepository();
+      final store = _FailingWriteStore();
+      final engine = _AckFailsOnceEngine();
+      final app = AppController(repository: repo, store: store, engine: engine);
+      await app.initialize();
+      await app.refresh();
+      await app.start(app.tasks.first, 5);
+      engine.elapse(const Duration(minutes: 5));
+      store.failWrites = true;
+      await expectLater(app.start(app.tasks[1], 5), throwsStateError);
+      expect(engine.ackCalls, 0);
+      expect(engine.records.length, 1);
+      expect(repo.sessions, isEmpty);
+      store.failWrites = false;
+      await app.refreshFocus();
+      await app.refresh();
+      expect(engine.ackCalls, 1);
+      expect(engine.records, isEmpty);
+      expect(repo.sessions.length, 1);
+      expect(app.focusCount(app.tasks.first), 1);
+      app.dispose();
+    },
+  );
   test('Short focus is acknowledged but never cached or uploaded', () async {
     final repo = FakeRepository();
     final engine = FakeFocusEngine();
@@ -418,7 +609,8 @@ void main() {
     repository.days[yesterday] = [source];
     await app.selectDate(DateTime.parse(yesterday));
     await app.addToToday(source);
-    expect(app.date, app.today);
+    expect(app.date, yesterday);
+    await app.selectDate(DateTime.parse(app.today));
     var copy = app.tasks.singleWhere((task) => task.templateId == 'haircut');
     expect(copy.carriedFromDate, yesterday);
     expect(copy.startAction, '先联系理发店');
@@ -439,6 +631,65 @@ void main() {
     await expectLater(app.addToToday(copy), throwsFormatException);
     app.dispose();
   });
+  test('A delayed carry keeps a newer selected date', () async {
+    final repository = _DelayedCarryRepository();
+    final app = AppController(
+      repository: repository,
+      store: MemoryStore(),
+      engine: FakeFocusEngine(),
+      clock: () => DateTime.utc(2026, 11, 14, 2),
+    );
+    await app.initialize();
+    await app.refresh();
+    final sourceDate = DateTime.parse(app.today)
+        .subtract(const Duration(days: 1));
+    await app.selectDate(sourceDate);
+    final source = app.tasks.first;
+    final carrying = app.addToToday(source);
+    await repository.carrying.future;
+    final selected = DateTime.parse(app.today).add(const Duration(days: 2));
+    await app.selectDate(selected);
+    final currentTasks = app.tasks.map((task) => task.toJson()).toList();
+    repository.release.complete();
+    await carrying;
+    expect(app.date, dayKey(selected));
+    expect(app.tasks.map((task) => task.toJson()), currentTasks);
+    expect(
+      repository.days[app.today]!
+          .singleWhere((task) => task.templateId == source.templateId)
+          .carriedFromDate,
+      dayKey(sourceDate),
+    );
+    app.dispose();
+  });
+  test(
+    'Explicit completion undo restores the original value and timestamp',
+    () async {
+      final repository = FakeRepository();
+      final app = AppController(
+        repository: repository,
+        store: MemoryStore(),
+        engine: FakeFocusEngine(),
+        clock: () => DateTime.utc(2026, 11, 14, 2),
+      );
+      await app.initialize();
+      await app.refresh();
+      final original = app.tasks.first;
+      await app.toggle(original);
+      await app.refresh();
+      await app.setCompleted(original, original.completed);
+      await app.refresh();
+      expect(app.tasks.first.completed, isFalse);
+      final oldCompletion = original.withCompletion('2026-11-01 02:00:00.000');
+      await app.setCompleted(oldCompletion, true);
+      await app.refresh();
+      expect(
+        app.tasks.singleWhere((task) => task.id == original.id).completedAt,
+        oldCompletion.completedAt,
+      );
+      app.dispose();
+    },
+  );
   test('Rapid date changes finish on the last requested date', () async {
     final app = AppController(
       repository: FakeRepository(),
@@ -456,6 +707,59 @@ void main() {
     expect(app.tasks.every((task) => task.date == app.date), isTrue);
     app.dispose();
   });
+  for (final restart in [false, true]) {
+    for (final completed in [false, true]) {
+      test(
+        'An old task detail updates its cached completion after midnight (completed=$completed, restart=$restart)',
+        () async {
+          var now = DateTime.utc(2026, 11, 14, 15, 59);
+          final originalDate = dayKey(chinaNow(now));
+          final repo = FakeRepository();
+          final store = MemoryStore();
+          final engine = FakeFocusEngine();
+          repo.days[originalDate] = fixtures(originalDate);
+          if (completed) {
+            repo.days[originalDate]![0] = repo.days[originalDate]!.first
+                .withCompletion(sqlTime(now));
+          }
+          AppController create() => AppController(
+            repository: repo,
+            store: store,
+            engine: engine,
+            clock: () => now,
+          );
+          var app = create();
+          await app.initialize();
+          await app.refresh();
+          final oldDetailTask = app.tasks.first;
+          final untouched = app.tasks
+              .skip(1)
+              .map((task) => task.toJson())
+              .toList();
+          now = now.add(const Duration(minutes: 2));
+          await app.selectDate(DateTime.parse(app.today));
+          final currentDate = app.date;
+          final currentTasks = app.tasks.map((task) => task.toJson()).toList();
+          await app.toggle(oldDetailTask);
+          await app.refresh();
+          expect(app.date, currentDate);
+          expect(app.tasks.map((task) => task.toJson()), currentTasks);
+          expect(repo.days[originalDate]!.first.completed, !completed);
+          repo.fail = true;
+          if (restart) {
+            app.dispose();
+            app = create();
+            await app.initialize();
+          }
+          await app.selectDate(DateTime.parse(originalDate));
+          expect(app.offline, isTrue);
+          expect(app.tasks.first.completed, !completed);
+          expect(app.tasks.skip(1).map((task) => task.toJson()), untouched);
+          app.dispose();
+        },
+      );
+    }
+  }
   test('Date switches use cache immediately, skip intermediate requests and reject stale results', () async {
     final repository = DelayedRepository();
     final store = MemoryStore();

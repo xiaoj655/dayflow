@@ -14,7 +14,7 @@ ROOT_FILES = {
     '.gitignore', '.gitattributes', '.metadata', 'AGENTS.md', 'README.md', 'LICENSE',
     'Makefile', 'THIRD_PARTY_NOTICES.md', 'CONTRIBUTING.md', 'SECURITY.md',
     'analysis_options.yaml', 'dart_test.yaml', 'pubspec.yaml', 'pubspec.lock',
-    'dayflow-icon.png',
+    'dayflow-icon.png', 'CHANGELOG.md',
 }
 DIRECTORIES = ('android', 'lib', 'test', 'database', 'scripts', 'config',
                'skills/dayflow', '.github', 'docs', 'web')

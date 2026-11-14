@@ -218,7 +218,7 @@ class AppController extends ChangeNotifier {
     }
     if (_refreshing != null) await _refreshing;
     await repository.addToToday(task, target);
-    await selectDate(DateTime.parse(target));
+    await refresh();
   }
 
   Future<void> refresh() {
@@ -307,13 +307,23 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  Future<void> toggle(DailyTask task) async {
+  Future<void> toggle(DailyTask task) => setCompleted(task, !task.completed);
+
+  Future<void> setCompleted(DailyTask task, bool completed) async {
     final now = sqlTime(clock());
-    final value = task.completed ? null : now;
+    final value = completed ? task.completedAt ?? now : null;
     _pendingCompletion[task.id] = {'completedAt': value, 'changedAt': now};
     tasks = tasks
         .map((item) => item.id == task.id ? item.withCompletion(value) : item)
         .toList();
+    // A task detail may remain open after midnight selects a different day.
+    for (final key in _cache.keys.toList()) {
+      _cache[key] = (_cache[key] as List).map((cached) {
+        final row = Map<String, dynamic>.from(cached as Map);
+        if (row['id'] == task.id) row['completed_at'] = value;
+        return row;
+      }).toList();
+    }
     _notify();
     await _persist();
     unawaited(refresh());
@@ -361,8 +371,15 @@ class AppController extends ChangeNotifier {
       for (final item in records) {
         final row = Map<String, dynamic>.from(item as Map);
         if (!_retainSession(row)) continue;
-        _pendingSessions[row['id'] as String] = row;
-        _historyCache[row['id'] as String] = {
+        final id = row['id'] as String;
+        // A journal acknowledgement can fail after the session was uploaded.
+        // Replay must not queue it again or increment the cached count twice.
+        if (_historyCache.containsKey(id) &&
+            !_pendingSessions.containsKey(id)) {
+          continue;
+        }
+        _pendingSessions[id] = row;
+        _historyCache[id] = {
           'id': row['id'],
           'space': row['space'] ?? 'life',
           'task_title': row['taskTitle'],
@@ -378,9 +395,14 @@ class AppController extends ChangeNotifier {
         };
       }
       await _persist();
-      await engine.call('ack', {
-        'ids': records.map((record) => (record as Map)['id']).toList(),
-      });
+      try {
+        await engine.call('ack', {
+          'ids': records.map((record) => (record as Map)['id']).toList(),
+        });
+      } on PlatformException {
+        // The accepted state and records are already durable. Leave the native
+        // journal intact and retry acknowledgement on the next snapshot.
+      }
       unawaited(refresh());
     }
     _notify();

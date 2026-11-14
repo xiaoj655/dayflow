@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.content.ComponentName
 import android.content.Context
 import android.net.Uri
+import android.provider.Settings
 import android.service.notification.Condition
 import org.junit.Assert.*
 import org.junit.Before
@@ -21,6 +22,7 @@ import org.robolectric.annotation.Resetter
 import org.robolectric.shadows.ShadowNotificationManager
 import org.robolectric.shadows.ShadowSystemClock
 import java.time.Duration
+import java.time.Instant
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34, 35], shadows = [RuleStateNotificationManager::class])
@@ -28,13 +30,21 @@ class FocusTimerTest {
     private lateinit var context: Context
     private lateinit var manager: NotificationManager
     private lateinit var timer: FocusTimer
+    private var wall = 0L
+
+    private fun createTimer() = FocusTimer(context) { wall }
+    private fun elapse(duration: Duration) {
+        wall += duration.toMillis()
+        ShadowSystemClock.advanceBy(duration)
+    }
 
     @Before fun prepare() {
         context = RuntimeEnvironment.getApplication()
         manager = context.getSystemService(NotificationManager::class.java)
         shadowOf(manager).setNotificationPolicyAccessGranted(true)
         org.robolectric.shadows.ShadowAlarmManager.setCanScheduleExactAlarms(true)
-        timer = FocusTimer(context)
+        wall = Instant.parse("2026-11-08T02:00:00Z").toEpochMilli()
+        timer = createTimer()
     }
 
     private fun start(id: String = "session-1", kind: String = "focus") = timer.handle("start", mapOf(
@@ -67,7 +77,7 @@ class FocusTimerTest {
 
     @Test fun naturalCompletionReleasesDndAndJournalsOnlyOnce() {
         start()
-        ShadowSystemClock.advanceBy(Duration.ofMinutes(5))
+        elapse(Duration.ofMinutes(5))
         timer.finish("session-1")
         timer.finish("session-1")
         val snapshot = timer.snapshot()
@@ -81,6 +91,39 @@ class FocusTimerTest {
         assertEquals(5, timer.snapshot()["lastMinutes"])
     }
 
+    @Test fun delayedNaturalCompletionEndsAtTheTimerDeadline() {
+        val startedAt = (start()["state"] as Map<*, *>)["startedAt"] as Long
+        elapse(Duration.ofMinutes(10))
+        timer.finish("session-1")
+        val record = (timer.snapshot()["records"] as List<*>).single() as Map<*, *>
+        assertEquals(startedAt + Duration.ofMinutes(5).toMillis(), record["endedAt"])
+        assertEquals(300, record["actualSeconds"])
+    }
+
+    @Test fun delayedCompletionPreservesThePauseBeforeItsDeadline() {
+        val startedAt = (start()["state"] as Map<*, *>)["startedAt"] as Long
+        elapse(Duration.ofMinutes(2))
+        timer.handle("pause", emptyMap<Any, Any>())
+        elapse(Duration.ofMinutes(10))
+        timer.handle("resume", emptyMap<Any, Any>())
+        elapse(Duration.ofMinutes(8))
+        timer.finish("session-1")
+        val record = (timer.snapshot()["records"] as List<*>).single() as Map<*, *>
+        assertEquals(startedAt + Duration.ofMinutes(15).toMillis(), record["endedAt"])
+        assertEquals(300, record["actualSeconds"])
+    }
+
+    @Test fun overdueCompletionAfterBootKeepsTheOriginalWallDeadline() {
+        val startedAt = (start()["state"] as Map<*, *>)["startedAt"] as Long
+        elapse(Duration.ofMinutes(10))
+        val boot = Settings.Global.getInt(context.contentResolver, Settings.Global.BOOT_COUNT, 0)
+        Settings.Global.putInt(context.contentResolver, Settings.Global.BOOT_COUNT, boot + 1)
+        createTimer().restoreAfterBoot()
+        val record = (timer.snapshot()["records"] as List<*>).single() as Map<*, *>
+        assertEquals(startedAt + Duration.ofMinutes(5).toMillis(), record["endedAt"])
+        assertEquals(300, record["actualSeconds"])
+    }
+
     @Test fun missingDndPermissionDoesNotAcceptATimer() {
         shadowOf(manager).setNotificationPolicyAccessGranted(false)
         assertThrows(IllegalStateException::class.java) { start() }
@@ -90,7 +133,7 @@ class FocusTimerTest {
 
     @Test fun revokedPermissionStillAllowsStopAndKeepsItsRecord() {
         start()
-        ShadowSystemClock.advanceBy(Duration.ofMinutes(3))
+        elapse(Duration.ofMinutes(3))
         shadowOf(manager).setNotificationPolicyAccessGranted(false)
         timer.handle("stop", emptyMap<Any, Any>())
         val snapshot = timer.snapshot()
@@ -101,9 +144,9 @@ class FocusTimerTest {
 
     @Test fun shortFocusIsDiscardedEvenAfterALongPause() {
         start()
-        ShadowSystemClock.advanceBy(Duration.ofSeconds(179))
+        elapse(Duration.ofSeconds(179))
         timer.handle("pause", emptyMap<Any, Any>())
-        ShadowSystemClock.advanceBy(Duration.ofHours(1))
+        elapse(Duration.ofHours(1))
         val snapshot = timer.handle("stop", emptyMap<Any, Any>())
         assertNull(snapshot["state"])
         assertTrue((snapshot["records"] as List<*>).isEmpty())
@@ -112,25 +155,25 @@ class FocusTimerTest {
 
     @Test fun exactlyThreeMinutesOfActiveFocusIsRecorded() {
         start()
-        ShadowSystemClock.advanceBy(Duration.ofSeconds(179))
+        elapse(Duration.ofSeconds(179))
         timer.handle("pause", emptyMap<Any, Any>())
-        ShadowSystemClock.advanceBy(Duration.ofHours(1))
+        elapse(Duration.ofHours(1))
         timer.handle("resume", emptyMap<Any, Any>())
-        ShadowSystemClock.advanceBy(Duration.ofSeconds(1))
+        elapse(Duration.ofSeconds(1))
         val snapshot = timer.handle("stop", emptyMap<Any, Any>())
         assertEquals(180, ((snapshot["records"] as List<*>).single() as Map<*, *>)["actualSeconds"])
     }
 
     @Test fun shortRestIsStillRecorded() {
         start(kind = "rest")
-        ShadowSystemClock.advanceBy(Duration.ofSeconds(10))
+        elapse(Duration.ofSeconds(10))
         val snapshot = timer.handle("stop", emptyMap<Any, Any>())
         assertEquals(10, ((snapshot["records"] as List<*>).single() as Map<*, *>)["actualSeconds"])
     }
 
     @Test fun nativeSnapshotRetainsTaskNameAndStartupAction() {
         start()
-        val restored = FocusTimer(context).snapshot()["state"] as Map<*, *>
+        val restored = createTimer().snapshot()["state"] as Map<*, *>
         assertEquals("阅读", restored["taskTitle"])
         assertEquals("先读一节", restored["startAction"])
         assertTrue((restored["remainingMillis"] as Long) > 0)
