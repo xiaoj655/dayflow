@@ -52,6 +52,34 @@ class _FailingWriteStore extends MemoryStore {
   }
 }
 
+class _FailingReadStore extends MemoryStore {
+  bool failReads = true;
+  int reads = 0, writes = 0;
+
+  @override
+  Future<String?> read(String key) {
+    reads++;
+    if (failReads) throw StateError('Local cache unavailable');
+    return super.read(key);
+  }
+
+  @override
+  Future<void> write(String key, String value) {
+    writes++;
+    return super.write(key, value);
+  }
+}
+
+class _CountingDelayedStore extends DelayedStore {
+  int reads = 0;
+
+  @override
+  Future<String?> read(String key) {
+    reads++;
+    return super.read(key);
+  }
+}
+
 class _DelayedCarryRepository extends FakeRepository {
   final carrying = Completer<void>();
   final release = Completer<void>();
@@ -65,6 +93,331 @@ class _DelayedCarryRepository extends FakeRepository {
 }
 
 void main() {
+  test(
+    'A damaged cache row leaves valid tasks and native focus recoverable',
+    () async {
+      final engine = FakeFocusEngine();
+      final date = dayKey(chinaNow(engine.now));
+      final rows = fixtures(date);
+      await engine.call('start', {
+        'id': 'active',
+        'space': 'life',
+        'taskId': rows.first.id,
+        'taskTitle': rows.first.title,
+        'minutes': 25,
+        'kind': 'focus',
+      });
+      final store = MemoryStore();
+      store.values['life_assistant.v1'] = jsonEncode({
+        'days': {
+          date: [
+            rows.first.toJson(),
+            {'id': 7},
+            rows.last.toJson(),
+          ],
+        },
+        'completion': {
+          rows.first.id: {
+            'completedAt': sqlTime(engine.now),
+            'changedAt': sqlTime(engine.now),
+          },
+        },
+      });
+      final app = AppController(
+        repository: FakeRepository()..fail = true,
+        store: store,
+        engine: engine,
+        clock: () => engine.now,
+      );
+      await app.initialize();
+      expect(app.tasks.map((row) => row.id), [rows.first.id, rows.last.id]);
+      expect(app.tasks.first.completed, isTrue);
+      expect(app.focus!.id, 'active');
+      expect(app.focus!.running, isTrue);
+      app.dispose();
+    },
+  );
+
+  test(
+    'A malformed cache section does not discard other offline queues',
+    () async {
+      final engine = FakeFocusEngine();
+      final date = dayKey(chinaNow(engine.now));
+      final task = fixtures(date).first;
+      final store = MemoryStore();
+      store.values['life_assistant.v1'] = jsonEncode({
+        'history': ['damaged'],
+        'days': {
+          date: [task.toJson()],
+        },
+        'completion': {
+          'broken': [],
+          task.id: {
+            'completedAt': sqlTime(engine.now),
+            'changedAt': sqlTime(engine.now),
+          },
+        },
+      });
+      final repository = FakeRepository();
+      final app = AppController(
+        repository: repository,
+        store: store,
+        engine: engine,
+        clock: () => engine.now,
+      );
+      await app.initialize();
+      expect(app.tasks.single.completed, isTrue);
+      // The invalid completion must not block the valid queued write.
+      repository.days[date] = [task];
+      await app.refresh();
+      expect(repository.days[date]!.single.completed, isTrue);
+      app.dispose();
+    },
+  );
+
+  test('An unread cache is preserved until recovery and native records stay unacknowledged', () async {
+    final engine = _AckFailsOnceEngine();
+    final date = dayKey(chinaNow(engine.now));
+    final task = fixtures(date).first;
+    await engine.call('start', {
+      'id': 'journal',
+      'space': 'life',
+      'taskId': task.id,
+      'taskTitle': task.title,
+      'minutes': 5,
+      'kind': 'focus',
+    });
+    engine.elapse(const Duration(minutes: 5));
+    final saved = jsonEncode({
+      'days': {
+        date: [task.toJson()],
+      },
+      'completion': {
+        task.id: {
+          'completedAt': sqlTime(engine.now),
+          'changedAt': sqlTime(engine.now),
+        },
+      },
+    });
+    final store = _FailingReadStore();
+    store.values['life_assistant.v1'] = saved;
+    final repository = FakeRepository();
+    repository.days[date] = [task];
+    final app = AppController(
+      repository: repository,
+      store: store,
+      engine: engine,
+      clock: () => engine.now,
+    );
+    await expectLater(app.initialize(), throwsStateError);
+    expect(app.offline, isTrue);
+    expect(app.focus?.id, 'journal');
+    expect(app.focus?.finished, isTrue);
+    await expectLater(app.refresh(), throwsStateError);
+    await app.refreshFocus();
+    expect(store.values['life_assistant.v1'], saved);
+    expect(store.writes, 0);
+    expect(engine.ackCalls, 0);
+    expect(engine.records.single['id'], 'journal');
+    expect(repository.sessions, isEmpty);
+    store.failReads = false;
+    await app.refresh();
+    expect(repository.days[date]!.single.completed, isTrue);
+    expect(app.offline, isFalse);
+    expect(engine.records, isEmpty);
+    expect(repository.sessions.keys, ['journal']);
+    app.dispose();
+  });
+
+  for (final saved in ['[]', '{invalid json']) {
+    test('Invalid cache JSON still restores native timing ($saved)', () async {
+      final engine = FakeFocusEngine();
+      await engine.call('start', {
+        'id': 'active',
+        'taskId': '',
+        'taskTitle': '自由专注',
+        'minutes': 25,
+        'kind': 'focus',
+      });
+      final store = MemoryStore();
+      store.values['life_assistant.v1'] = saved;
+      final app = AppController(
+        repository: FakeRepository(),
+        store: store,
+        engine: engine,
+      );
+      await app.initialize();
+      expect(app.focus!.id, 'active');
+      expect(app.tasks, isEmpty);
+      app.dispose();
+    });
+  }
+
+  test(
+    'Damaged queue entries do not block valid session and waiting writes',
+    () async {
+      final engine = FakeFocusEngine();
+      final date = dayKey(chinaNow(engine.now));
+      final work = DailyTask(
+        id: 'work',
+        templateId: 'work',
+        date: date,
+        title: '工作',
+        content: '内容',
+        space: 'work',
+      );
+      final session = {
+        'id': 'valid-session',
+        'kind': 'focus',
+        'status': 'completed',
+        'actualSeconds': 300,
+        'plannedSeconds': 300,
+        'startedAt': engine.now.millisecondsSinceEpoch,
+        'endedAt': engine.now
+            .add(const Duration(minutes: 5))
+            .millisecondsSinceEpoch,
+        'space': 'work',
+        'taskId': work.id,
+        'taskTitle': work.title,
+      };
+      final store = MemoryStore();
+      store.values['life_assistant.v1'] = jsonEncode({
+        'days': {
+          date: 'broken',
+          'work': [null, work.toJson()],
+        },
+        'sessions': {
+          'broken': {'id': 'broken'},
+          'missing-title': {
+            ...session,
+            'id': 'missing-title',
+            'taskTitle': null,
+          },
+          'negative-plan': {
+            ...session,
+            'id': 'negative-plan',
+            'plannedSeconds': -1,
+          },
+          'valid-session': session,
+        },
+        'waiting': {'broken': 'yes', work.id: true},
+        'history': {
+          'broken': {'kind': 'focus', 'actual_seconds': 'invalid'},
+          'valid-history': {
+            'id': 'valid-history',
+            'kind': 'focus',
+            'actual_seconds': '300',
+            'started_at': sqlTime(engine.now),
+            'ended_at': sqlTime(engine.now.add(const Duration(minutes: 5))),
+          },
+        },
+      });
+      final repository = FakeRepository()..fail = true;
+      repository.days[date] = [work];
+      final app = AppController(
+        repository: repository,
+        store: store,
+        engine: engine,
+        clock: () => engine.now,
+      );
+      await app.initialize();
+      expect(app.tasks.single.waiting, isTrue);
+      expect((await app.history()).single['id'], 'valid-history');
+      repository.fail = false;
+      await app.refresh();
+      expect(repository.sessions.keys, ['valid-session']);
+      expect(repository.days[date]!.single.waiting, isTrue);
+      app.dispose();
+    },
+  );
+
+  test('Concurrent startup and refresh share one restore without dropping queued changes', () async {
+    final engine = FakeFocusEngine();
+    final date = dayKey(chinaNow(engine.now));
+    final task = fixtures(date).first;
+    final store = _CountingDelayedStore();
+    final repository = FakeRepository();
+    repository.days[date] = [task];
+    final app = AppController(
+      repository: repository,
+      store: store,
+      engine: engine,
+      clock: () => engine.now,
+    );
+    final first = app.initialize();
+    final second = app.initialize();
+    final refreshing = app.refresh();
+    expect(identical(first, second), isTrue);
+    expect(store.reads, 1);
+    store.restored.complete(
+      jsonEncode({
+        'days': {
+          date: [task.toJson()],
+        },
+        'completion': {
+          task.id: {
+            'completedAt': sqlTime(engine.now),
+            'changedAt': sqlTime(engine.now),
+          },
+        },
+      }),
+    );
+    await Future.wait([first, second, refreshing]);
+    expect(repository.days[date]!.single.completed, isTrue);
+    expect(app.tasks.single.completed, isTrue);
+    await app.selectDate(DateTime.parse(date).add(const Duration(days: 1)));
+    final selected = app.date;
+    await app.initialize();
+    expect(store.reads, 1);
+    expect(app.date, selected);
+    app.dispose();
+  });
+
+  test('A damaged queued session cannot turn local history into an upload acknowledgement', () async {
+    final engine = FakeFocusEngine();
+    final session = {
+      'id': 'recoverable',
+      'kind': 'focus',
+      'status': 'completed',
+      'plannedSeconds': 300,
+      'actualSeconds': 300,
+      'startedAt': engine.now.millisecondsSinceEpoch,
+      'endedAt': engine.now
+          .add(const Duration(minutes: 5))
+          .millisecondsSinceEpoch,
+      'taskId': '',
+      'taskTitle': '自由专注',
+    };
+    engine.records.add(session);
+    final store = MemoryStore();
+    store.values['life_assistant.v1'] = jsonEncode({
+      'sessions': {
+        'recoverable': {...session, 'taskTitle': null},
+      },
+      'history': {
+        'recoverable': {
+          'id': 'recoverable',
+          'kind': 'focus',
+          'status': 'completed',
+          'actual_seconds': 300,
+          'started_at': sqlTime(engine.now),
+          'ended_at': sqlTime(engine.now.add(const Duration(minutes: 5))),
+        },
+      },
+    });
+    final repository = FakeRepository();
+    final app = AppController(
+      repository: repository,
+      store: store,
+      engine: engine,
+    );
+    await app.initialize();
+    await app.refresh();
+    expect(repository.sessions.keys, ['recoverable']);
+    expect(engine.records, isEmpty);
+    app.dispose();
+  });
+
   test('Spaces isolate tasks and completion and survive reopening', () async {
     final store = MemoryStore();
     final repo = FakeRepository();
@@ -452,17 +805,30 @@ void main() {
           '$seconds': {
             'id': '$seconds',
             'kind': 'focus',
+            'status': 'completed',
+            'plannedSeconds': 300,
+            'taskTitle': '自由专注',
             'actualSeconds': seconds,
             'startedAt': 0,
             'endedAt': 3600000,
           },
-        'rest': {'id': 'rest', 'kind': 'rest', 'actualSeconds': 10},
+        'rest': {
+          'id': 'rest',
+          'kind': 'rest',
+          'status': 'completed',
+          'plannedSeconds': 300,
+          'taskTitle': '休息',
+          'actualSeconds': 10,
+          'startedAt': 0,
+          'endedAt': 10000,
+        },
       };
       Map<String, dynamic> historyRow(Map<String, dynamic> row) => {
         'id': row['id'],
         'kind': row['kind'],
         'actual_seconds': row['actualSeconds'].toString(),
         'started_at': '2026-11-08 00:00:00',
+        'ended_at': '2026-11-08 01:00:00',
       };
       store.values['life_assistant.v1'] = jsonEncode({
         'sessions': rows,

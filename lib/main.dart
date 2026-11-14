@@ -58,6 +58,17 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   int _seconds = 0;
   late String _today;
   late bool _ready;
+
+  void _background(Future<void> Function() operation) {
+    unawaited(
+      Future<void>.sync(operation).catchError((Object error, StackTrace stack) {
+        // Native state and local records remain available for the next retry.
+        // Keep transient background failures out of the application's error zone.
+        debugPrint('Background refresh failed: ${error.runtimeType}');
+      }),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -65,11 +76,11 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     _today = widget.controller.today;
     _ready = !widget.initializeController;
     if (_ready) {
-      unawaited(widget.controller.refresh());
+      _background(widget.controller.refresh);
       _startTicker();
     } else {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) unawaited(_initialize());
+        if (mounted) _background(_initialize);
       });
     }
   }
@@ -85,23 +96,25 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
       _startTicker();
     }
-    unawaited(widget.controller.refresh());
+    _background(widget.controller.refresh);
   }
 
   void _startTicker() {
     _ticker?.cancel();
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
       if (widget.controller.focus?.running == true) {
-        unawaited(widget.controller.refreshFocus());
+        _background(widget.controller.refreshFocus);
       }
       final today = widget.controller.today;
       if (today != _today) {
         if (widget.controller.date == _today) {
-          unawaited(widget.controller.selectDate(DateTime.parse(today)));
+          _background(
+            () => widget.controller.selectDate(DateTime.parse(today)),
+          );
         }
         _today = today;
       }
-      if (++_seconds % 30 == 0) unawaited(widget.controller.refresh());
+      if (++_seconds % 30 == 0) _background(widget.controller.refresh);
     });
   }
 
@@ -110,8 +123,8 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     if (!_ready) return;
     if (state == AppLifecycleState.resumed) {
       _startTicker();
-      unawaited(widget.controller.refreshFocus());
-      unawaited(widget.controller.refresh());
+      _background(widget.controller.refreshFocus);
+      _background(widget.controller.refresh);
     } else {
       _ticker?.cancel();
     }

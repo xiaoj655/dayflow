@@ -45,6 +45,7 @@ class AppController extends ChangeNotifier {
         ..sort((a, b) => b.completedAt!.compareTo(a.completedAt!));
   Future<void> selectSpace(String value) async {
     if (!['life', 'work'].contains(value)) return;
+    if (!_cacheReady) await _ensureCache();
     space = value;
     _notify();
     await _persist();
@@ -58,13 +59,15 @@ class AppController extends ChangeNotifier {
   bool initializing = true;
   bool loading = false, offline = false;
   bool _closed = false;
+  bool _cacheReady = false;
+  bool _needsNativeReplay = false;
   final Map<String, dynamic> _cache = {};
   final Map<String, Map<String, dynamic>> _historyCache = {};
   final Map<String, dynamic> _pendingCompletion = {};
   final Map<String, dynamic> _pendingWaiting = {};
   final Map<String, Map<String, dynamic>> _pendingSessions = {};
   Future<void> _writes = Future.value();
-  Future<void>? _refreshing, _focusReading;
+  Future<void>? _refreshing, _focusReading, _cacheReading, _initializing;
   String get today => dayKey(chinaNow(clock()));
   List<DailyTask> get pending =>
       visibleTasks.where((task) => !task.completed).toList();
@@ -110,46 +113,133 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  Future<void> initialize() async {
+  Future<void> initialize() =>
+      _initializing ??= _initialize().whenComplete(() => _initializing = null);
+
+  Future<void> _initialize() async {
     try {
-      date = dayKey(chinaNow(clock()));
-      final saved = await store.read('life_assistant.v1');
-      if (saved != null) {
-        try {
-          final data = jsonDecode(saved) as Map<String, dynamic>;
-          space = data['space'] == 'work' ? 'work' : 'life';
-          for (final entry
-              in (data['history'] as Map<String, dynamic>? ?? {}).entries) {
-            _historyCache[entry.key] = Map<String, dynamic>.from(
-              entry.value as Map,
-            );
-          }
-          _pendingWaiting.addAll(
-            data['waiting'] as Map<String, dynamic>? ?? {},
-          );
-          _cache.addAll(data['days'] as Map<String, dynamic>? ?? {});
-          _pendingCompletion.addAll(
-            data['completion'] as Map<String, dynamic>? ?? {},
-          );
-          for (final entry
-              in (data['sessions'] as Map<String, dynamic>? ?? {}).entries) {
-            _pendingSessions[entry.key] = Map<String, dynamic>.from(
-              entry.value as Map,
-            );
-          }
-        } on FormatException {
-          /* A damaged cache must not prevent opening the app. */
-        }
+      try {
+        await _ensureCache();
+      } catch (_) {
+        offline = true;
+        rethrow;
+      } finally {
+        // Native timing remains available even while local storage is unreadable.
+        await refreshFocus();
       }
-      _pendingSessions.removeWhere((_, row) => !_retainSession(row));
-      _historyCache.removeWhere((_, row) => !_retainSession(row));
-      _loadCache();
-      await refreshFocus();
     } finally {
       initializing = false;
       _notify();
     }
   }
+
+  Future<void> _ensureCache() {
+    if (_cacheReady) return Future.value();
+    return _cacheReading ??= _restoreCache().whenComplete(
+      () => _cacheReading = null,
+    );
+  }
+
+  Future<void> _restoreCache() async {
+    // A failed read must leave this gate closed: writing an empty snapshot would
+    // otherwise erase offline changes that have not been read yet.
+    final saved = await store.read('life_assistant.v1');
+    Map<String, dynamic> data = {};
+    if (saved != null) {
+      try {
+        final decoded = jsonDecode(saved);
+        if (decoded is Map<String, dynamic>) data = decoded;
+      } on FormatException {
+        /* Invalid JSON has no recoverable sections. */
+      }
+    }
+    space = data['space'] == 'work' ? 'work' : 'life';
+    _restoreEntries(data['days'], (key, value) {
+      if (value is! List) return;
+      final rows = <Map<String, dynamic>>[];
+      for (final item in value) {
+        if (item is! Map<String, dynamic>) continue;
+        try {
+          final task = DailyTask.fromJson(item);
+          if (!_validTime(task.date) ||
+              (task.completedAt != null && !_validTime(task.completedAt))) {
+            continue;
+          }
+          rows.add(task.toJson());
+        } catch (_) {
+          // One damaged row must not discard the other tasks or upload queues.
+        }
+      }
+      _cache[key] = rows;
+    });
+    _restoreEntries(data['completion'], (key, value) {
+      if (value is! Map<String, dynamic> ||
+          !value.containsKey('completedAt') ||
+          (value['completedAt'] != null && !_validTime(value['completedAt'])) ||
+          !_validTime(value['changedAt'])) {
+        return;
+      }
+      _pendingCompletion[key] = value;
+    });
+    _restoreEntries(data['waiting'], (key, value) {
+      if (value is bool) _pendingWaiting[key] = value;
+    });
+    final damagedSessions = <String>{};
+    _restoreEntries(data['sessions'], (key, value) {
+      if (value is! Map<String, dynamic> ||
+          value['id'] != key ||
+          !_validSession(value)) {
+        damagedSessions.add(key);
+        return;
+      }
+      if (_retainSession(value)) _pendingSessions[key] = value;
+    });
+    _restoreEntries(data['history'], (key, value) {
+      // A damaged pending row does not prove that its matching local history
+      // was uploaded. Let an intact native journal entry restore it instead.
+      if (damagedSessions.contains(key) ||
+          value is! Map<String, dynamic> ||
+          !_validTime(value['started_at']) ||
+          !_validTime(value['ended_at']) ||
+          int.tryParse('${value['actual_seconds']}') == null ||
+          !['focus', 'rest'].contains(value['kind']) ||
+          !_retainSession(value)) {
+        return;
+      }
+      _historyCache[key] = value;
+    });
+    date = today;
+    _cacheReady = true;
+    _loadCache();
+  }
+
+  void _restoreEntries(
+    dynamic section,
+    void Function(String key, dynamic value) restore,
+  ) {
+    if (section is! Map<String, dynamic>) return;
+    for (final entry in section.entries) {
+      if (entry.key.isNotEmpty) restore(entry.key, entry.value);
+    }
+  }
+
+  bool _validTime(dynamic value) =>
+      value is String && DateTime.tryParse(value) != null;
+
+  bool _validSession(Map<String, dynamic> row) =>
+      ['focus', 'rest'].contains(row['kind']) &&
+      ['completed', 'interrupted'].contains(row['status']) &&
+      row['actualSeconds'] is int &&
+      (row['actualSeconds'] as int) >= 0 &&
+      row['plannedSeconds'] is int &&
+      (row['plannedSeconds'] as int) >= 0 &&
+      row['startedAt'] is int &&
+      row['endedAt'] is int &&
+      (row['startedAt'] as int).abs() <= 8640000000000000 &&
+      (row['endedAt'] as int).abs() <= 8640000000000000 &&
+      (row['space'] == null || ['life', 'work'].contains(row['space'])) &&
+      (row['taskId'] == null || row['taskId'] is String) &&
+      row['taskTitle'] is String;
 
   void _loadCache() {
     final rows = [
@@ -185,6 +275,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> _persist() {
+    if (!_cacheReady) return _ensureCache().then((_) => _persist());
     _cache['work'] = tasks
         .where((t) => t.space == 'work')
         .map((t) => t.toJson())
@@ -206,6 +297,7 @@ class AppController extends ChangeNotifier {
 
   Future<void> selectDate(DateTime value) {
     if (_closed) return Future.value();
+    if (!_cacheReady) return _ensureCache().then((_) => selectDate(value));
     date = dayKey(value);
     _loadCache();
     return refresh();
@@ -234,6 +326,8 @@ class AppController extends ChangeNotifier {
     loading = true;
     _notify();
     try {
+      if (!_cacheReady) await _ensureCache();
+      if (_needsNativeReplay) await refreshFocus();
       String requested;
       do {
         requested = date;
@@ -243,6 +337,7 @@ class AppController extends ChangeNotifier {
       } while (!_closed && requested != date);
       done.complete();
     } catch (error, stack) {
+      if (!_cacheReady) offline = true;
       done.completeError(error, stack);
     } finally {
       _refreshing = null;
@@ -310,6 +405,7 @@ class AppController extends ChangeNotifier {
   Future<void> toggle(DailyTask task) => setCompleted(task, !task.completed);
 
   Future<void> setCompleted(DailyTask task, bool completed) async {
+    if (!_cacheReady) await _ensureCache();
     final now = sqlTime(clock());
     final value = completed ? task.completedAt ?? now : null;
     _pendingCompletion[task.id] = {'completedAt': value, 'changedAt': now};
@@ -330,6 +426,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> toggleWaiting(DailyTask task) async {
+    if (!_cacheReady) await _ensureCache();
     _pendingWaiting[task.id] = !task.waiting;
     tasks = tasks
         .map((t) => t.id == task.id ? t.withWaiting(!task.waiting) : t)
@@ -367,6 +464,13 @@ class AppController extends ChangeNotifier {
         : null;
     lastMinutes = (snapshot['lastMinutes'] as num?)?.toInt() ?? lastMinutes;
     final records = snapshot['records'] as List? ?? [];
+    if (!_cacheReady) {
+      // Leave the journal on the native side until its records can be merged
+      // with the previously saved queues and durably persisted before ack.
+      _needsNativeReplay = records.isNotEmpty;
+      _notify();
+      return;
+    }
     if (records.isNotEmpty) {
       for (final item in records) {
         final row = Map<String, dynamic>.from(item as Map);
@@ -395,6 +499,7 @@ class AppController extends ChangeNotifier {
         };
       }
       await _persist();
+      _needsNativeReplay = false;
       try {
         await engine.call('ack', {
           'ids': records.map((record) => (record as Map)['id']).toList(),
@@ -415,6 +520,7 @@ class AppController extends ChangeNotifier {
           180;
 
   Future<List<Map<String, dynamic>>> history() async {
+    if (!_cacheReady) await _ensureCache();
     try {
       for (final row in await repository.history()) {
         if (!_retainSession(row)) continue;
