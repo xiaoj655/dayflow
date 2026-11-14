@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:life_assistant/models/task.dart';
 import 'package:life_assistant/pages/app_pages.dart';
 import 'package:life_assistant/widgets/focus_task_brief.dart';
+import 'package:life_assistant/widgets/focus_task_panel.dart';
 
 import 'fakes.dart';
 import 'widget_test.dart' show configure, reveal, rotary;
@@ -53,16 +54,20 @@ void main() {
         final id = app.focus!.id;
         await tester.tap(find.byKey(const ValueKey('active-focus-brief')));
         await tester.pumpAndSettle();
-        expect(find.byType(FocusTaskBrief), findsOneWidget);
+        expect(find.byType(FocusTaskPanel), findsOneWidget);
+        expect(find.byType(FocusTaskBrief), findsNothing);
+        expect(find.byKey(const ValueKey('focus-panel-start-action')), findsOneWidget);
+        expect(find.text(task.completionStandard!), findsOneWidget);
         (app.engine as FakeFocusEngine).elapse(const Duration(minutes: 1));
         await app.refreshFocus();
         await tester.pumpAndSettle();
         expect(app.focus!.running, isTrue);
         expect(app.focus!.id, id);
         expect(app.completed, isEmpty);
-        Navigator.of(tester.element(find.byType(FocusTaskBrief))).pop();
+        await tester.tap(find.byKey(const ValueKey('active-focus-brief')));
         await tester.pumpAndSettle();
         expect(find.byType(FocusPage), findsOneWidget);
+        expect(find.byType(FocusTaskPanel), findsNothing);
         expect(find.text('34:00'), findsOneWidget);
         expect(tester.takeException(), isNull);
       },

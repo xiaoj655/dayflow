@@ -19,6 +19,7 @@ import '../widgets/focus_finished_view.dart';
 import '../widgets/focus_task_picker.dart';
 import '../widgets/home_focus_card.dart';
 import '../widgets/focus_task_brief.dart';
+import '../widgets/focus_task_panel.dart';
 
 const accent = AppColors.primary;
 const surface = AppColors.surface;
@@ -1582,6 +1583,7 @@ class _FocusPageState extends State<FocusPage> {
   AppController get controller => widget.controller;
   bool get isRound => widget.isRound;
   bool busy = false;
+  bool showTaskPanel = false;
   bool get isCurrent => mounted && ModalRoute.of(context)?.isCurrent == true;
 
   Future<void> _run(
@@ -1704,33 +1706,47 @@ class _FocusPageState extends State<FocusPage> {
     }
   }
 
-  Widget _controls(BuildContext context) => Row(
-    mainAxisAlignment: MainAxisAlignment.center,
-    children: [
-      IconButton.filledTonal(
-        tooltip: controller.focus!.kind == 'rest' ? '结束休息' : '提前结束',
-        style: IconButton.styleFrom(fixedSize: const Size(48, 48)),
-        icon: const Icon(Icons.stop_rounded, size: 24),
-        onPressed: busy ? null : () => _run(_finishEarly),
+  Widget _controls(BuildContext context) {
+    final isRest = controller.focus!.kind == 'rest';
+    return Transform.scale(
+      scale: 0.68,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          IconButton.filledTonal(
+            tooltip: isRest ? '结束休息' : '提前结束',
+            style: IconButton.styleFrom(
+              fixedSize: const Size(48, 48),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            constraints: BoxConstraints.tight(const Size(48, 48)),
+            icon: const Icon(Icons.stop_rounded, size: 24),
+            onPressed: busy ? null : () => _run(_finishEarly),
+          ),
+          const SizedBox(width: 16),
+          IconButton.filled(
+            tooltip: controller.focus!.paused ? '继续' : '暂停',
+            style: IconButton.styleFrom(
+              fixedSize: const Size(48, 48),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            constraints: BoxConstraints.tight(const Size(48, 48)),
+            onPressed: busy
+                ? null
+                : () => _run(() async {
+                    await _action(controller.focus!.paused ? 'resume' : 'pause');
+                  }),
+            icon: Icon(
+              controller.focus!.paused
+                  ? Icons.play_arrow_rounded
+                  : Icons.pause_rounded,
+              size: 26,
+            ),
+          ),
+        ],
       ),
-      const SizedBox(width: 16),
-      IconButton.filled(
-        tooltip: controller.focus!.paused ? '继续' : '暂停',
-        style: IconButton.styleFrom(fixedSize: const Size(48, 48)),
-        onPressed: busy
-            ? null
-            : () => _run(() async {
-                await _action(controller.focus!.paused ? 'resume' : 'pause');
-              }),
-        icon: Icon(
-          controller.focus!.paused
-              ? Icons.play_arrow_rounded
-              : Icons.pause_rounded,
-          size: 26,
-        ),
-      ),
-    ],
-  );
+    );
+  }
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
@@ -1801,14 +1817,7 @@ class _FocusPageState extends State<FocusPage> {
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 foregroundColor: AppColors.text,
               ),
-              onPressed: busy
-                  ? null
-                  : () => showFocusTaskBrief(
-                      context,
-                      controller,
-                      _task(),
-                      isRound: isRound,
-                    ),
+              onPressed: () => setState(() => showTaskPanel = !showTaskPanel),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -1825,6 +1834,9 @@ class _FocusPageState extends State<FocusPage> {
             );
       final action = focus.kind == 'focus' ? focus.startAction?.trim() : null;
       final hasAction = action?.isNotEmpty == true;
+      final task = focus.kind == 'focus' && focus.taskId.isNotEmpty
+          ? _task()
+          : null;
       final focusColor = !focus.paused && focus.kind == 'focus'
           ? AppColors.focus
           : muted;
@@ -1897,84 +1909,101 @@ class _FocusPageState extends State<FocusPage> {
               return Center(
                 child: SizedBox.square(
                   dimension: side,
-                  child: Stack(
-                    children: [
-                      Positioned.fill(
-                        child: IgnorePointer(
-                          child: CustomPaint(
-                            painter: _TimerRing(
-                              focus.remainingMillis /
-                                  (focus.plannedSeconds * 1000),
-                              focusColor,
-                            ),
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: CustomPaint(
+                          painter: _TimerRing(
+                            focus.remainingMillis /
+                                (focus.plannedSeconds * 1000),
+                            focusColor,
                           ),
                         ),
                       ),
+                    ),
+                    Positioned(
+                      top: side * .12,
+                      left: side * .17,
+                      right: side * .17,
+                      child: title,
+                    ),
+                    if (hasAction)
                       Positioned(
-                        top: side * .12,
-                        left: side * .17,
-                        right: side * .17,
-                        child: title,
-                      ),
-                      if (hasAction)
-                        Positioned(
-                          top: side * .29,
-                          left: side * .18,
-                          right: side * .18,
-                          child: readableAction(
-                            context,
-                            action!,
-                            Text(
-                              action,
-                              key: const ValueKey('active-focus-start-action'),
-                              maxLines:
-                                  MediaQuery.sizeOf(context).shortestSide < 220
-                                  ? 1
-                                  : 2,
-                              overflow: TextOverflow.ellipsis,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                color: muted,
-                                fontSize: 12,
-                                height: 1.25,
-                              ),
-                            ),
-                          ),
-                        ),
-                      Positioned(
-                        top: side * (side < 220 ? .39 : .43),
-                        left: side * .12,
-                        right: side * .12,
-                        child: FittedBox(
-                          fit: BoxFit.scaleDown,
+                        top: side * .29,
+                        left: side * .18,
+                        right: side * .18,
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () => setState(() => showTaskPanel = true),
                           child: Text(
-                            timerText(focus.remainingSeconds),
-                            key: const ValueKey('active-focus-countdown'),
-                            style: TextStyle(
-                              fontSize: side * (side < 220 ? .18 : .20),
-                              height: 1,
-                              fontWeight: FontWeight.w500,
-                              fontFeatures: const [
-                                FontFeature.tabularFigures(),
-                              ],
-                              letterSpacing: -1,
+                            action!,
+                            key: const ValueKey('active-focus-start-action'),
+                            maxLines:
+                                MediaQuery.sizeOf(context).shortestSide < 220
+                                ? 1
+                                : 2,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: muted,
+                              fontSize: 12,
+                              height: 1.25,
                             ),
                           ),
                         ),
                       ),
-                      Positioned(
-                        top: side * (side < 220 ? .58 : .65),
-                        left: 0,
-                        right: 0,
-                        child: Center(child: status),
+                    Positioned(
+                      top: side * (side < 220 ? .39 : .43),
+                      left: side * .12,
+                      right: side * .12,
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          timerText(focus.remainingSeconds),
+                          key: const ValueKey('active-focus-countdown'),
+                          style: TextStyle(
+                            fontSize: side * (side < 220 ? .18 : .20),
+                            height: 1,
+                            fontWeight: FontWeight.w500,
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                            letterSpacing: -1,
+                          ),
+                        ),
                       ),
-                      Positioned(
-                        top: math.min(side * .73, side - 68),
-                        left: 0,
-                        right: 0,
-                        child: _controls(context),
+                    ),
+                    Positioned(
+                      top: side * (side < 220 ? .58 : .65),
+                      left: 0,
+                      right: 0,
+                      child: Center(child: status),
+                    ),
+                    Positioned(
+                      top: math.min(side * .73, side - 68),
+                      left: 0,
+                      right: 0,
+                      child: _controls(context),
+                    ),
+                    if (showTaskPanel)
+                      Positioned.fill(
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () => setState(() => showTaskPanel = false),
+                          child: ColoredBox(
+                            color: AppColors.background.withAlpha(235),
+                            child: Padding(
+                              padding: EdgeInsets.fromLTRB(
+                                side * .10,
+                                side * .16,
+                                side * .10,
+                                side * .16,
+                              ),
+                              child: FocusTaskPanel(task: task!),
+                            ),
+                          ),
+                        ),
                       ),
-                    ],
+                  ],
                   ),
                 ),
               );
