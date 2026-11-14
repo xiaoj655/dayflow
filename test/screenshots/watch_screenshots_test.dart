@@ -148,6 +148,20 @@ void main() {
         await tester.pumpAndSettle();
       }
 
+      Future<void> captureHomeTimer(String name, String tooltip) async {
+        final sessionId = controller.focus!.id;
+        await back();
+        expect(find.byType(TaskListPage), findsOneWidget);
+        final list = tester.widget<ListView>(find.byType(ListView));
+        list.controller!.jumpTo(0);
+        await tester.pumpAndSettle();
+        expect(find.byKey(const ValueKey('home-focus-card')), findsOneWidget);
+        expect(find.byTooltip(tooltip).hitTestable(), findsOneWidget);
+        await capture(name);
+        expect(controller.focus!.id, sessionId);
+        await open(FocusPage(controller: controller, isRound: true));
+      }
+
       try {
         expect(find.text('整理书桌'), findsOneWidget);
         expect(AppClock.now(tester.element(find.text('整理书桌'))), now);
@@ -238,10 +252,12 @@ void main() {
         await open(FocusPage(controller: controller, isRound: true));
         expect(find.text('25:00'), findsOneWidget);
         await capture('focus-running');
+        await captureHomeTimer('tasks-focusing', '暂停专注');
 
         await controller.focusAction('pause');
         expect(controller.focus!.paused, isTrue);
         await capture('focus-paused');
+        await captureHomeTimer('tasks-paused', '继续专注');
         await controller.focusAction('resume');
         engine.elapse(const Duration(minutes: 25));
         await controller.refreshFocus();
@@ -254,6 +270,7 @@ void main() {
         await open(FocusPage(controller: controller, isRound: true));
         expect(controller.focus!.kind, 'rest');
         await capture('rest-running');
+        await captureHomeTimer('tasks-resting', '暂停休息');
         engine.elapse(const Duration(minutes: 5));
         await controller.refreshFocus();
         await capture('rest-finished');

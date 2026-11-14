@@ -869,7 +869,7 @@ void main() {
       await app.start(task, 25);
       await app.focusAction('pause');
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(FilledButton, task.title));
+      await tester.tap(find.byKey(const ValueKey('home-focus-open')));
       await tester.pumpAndSettle();
       engine.delayNext = true;
       await tester.tap(find.byTooltip('继续'));

@@ -10,6 +10,7 @@ Flutter 原生 Android 应用，手表执行任务、专注计时，手机编辑
 - 手表采用 Wear OS 圆屏设计与 Material 控件，完整圆屏布局、普通纵向滚动、表冠滚动（2.04 倍，带轻微触感）；触摸操作优先，左边缘跟手右滑返回；列表边缘轻微缩小淡出，顶部弧形时间随滚动隐藏。
 - 界面以黑白灰为主，主要操作按钮使用红色，选中项与运行中的专注圆环、状态少量用红色强调，分析时间轴局部用颜色区分记录。
 - 专注时长 5–180 分钟、每格 5 分钟，表冠与鼠标滚轮切换带平滑动画；记忆上次实际启动的时长。暂停、继续、提前结束；结束短震两次，不自动休息或完成任务。
+- 首页进行中卡片可直接暂停／继续专注或休息，点击标题或倒计时进入完整计时页；自由专注入口放在已完成任务之前，全部任务完成后也可直接开始。
 - 首页任务播放键直接进入专注设置，标题与番茄次数查看详情；任务详情首尾仍有随内容滚动的专注按钮，任务内容按需展开。从任务进入设置时自动关联任务；通用入口保留选择功能。开始前和专注中显示任务名称，有启动动作时同步显示。
 - 专注选任务页可直接切换生活／工作，按所选生活日期或本周工作池选择待办，也可开始对应空间的自由专注；切换不改变首页空间或工作提醒。
 - 专注自动开启 App 自有勿扰规则，并通过小米系统联动手机；暂停、结束或提前停止后撤销本轮开启的勿扰，休息不启用。开始前已有勿扰时不接管；专注中观察到手动接管后不再撤销。首次开始前需授予通知、闹钟、勿扰控制和小米联动所需权限。
@@ -27,6 +28,11 @@ Flutter 原生 Android 应用，手表执行任务、专注计时，手机编辑
   <tr>
     <td align="center"><img src="docs/screenshots/tasks.png" width="200" height="200" alt="生活任务"><br>生活任务</td>
     <td align="center"><img src="docs/screenshots/work-tasks.png" width="200" height="200" alt="工作任务"><br>工作任务</td>
+    <td align="center"><img src="docs/screenshots/tasks-focusing.png" width="200" height="200" alt="首页专注中"><br>首页专注中</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/tasks-paused.png" width="200" height="200" alt="首页已暂停"><br>首页已暂停</td>
+    <td align="center"><img src="docs/screenshots/tasks-resting.png" width="200" height="200" alt="首页休息中"><br>首页休息中</td>
     <td align="center"><img src="docs/screenshots/tasks-empty.png" width="200" height="200" alt="空任务"><br>空任务</td>
   </tr>
   <tr>

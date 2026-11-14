@@ -23,6 +23,9 @@
   "images": {
     "tasks.png": "e9dc9fdbc537d55bba5e8a031e224d7ad0a2b31bd2b5b5ed3b857794b342afec",
     "work-tasks.png": "513a2806ac1327db5089fc58a6e30db0f5fa3aec3810a5b10d4d0d0522d66f70",
+    "tasks-focusing.png": "d2b010a5b7a5b48f4163f688f47aaeceaa402ba509752542688e275aa5db20ff",
+    "tasks-paused.png": "baf303d48d76d7317901f617f1ba59a7a7394e825653e3ac47d844156859b37b",
+    "tasks-resting.png": "4a6ad1e9807a6adfcd2238b8515f6a7fd71cf9dd03ef875361cc0460acfd6738",
     "tasks-empty.png": "d2528f8fc68137132861f768232c3fa5bbdf96c7c3e1fc987a2b6961bc9cda9f",
     "calendar.png": "648e9e43494237e2fad1ffe5c1c461f7dee7208d3ed9b401ce097291d4dca5ff",
     "task-detail.png": "eea22da0df053bb8f94677e60124e5a2ecf9ec8793fe0417672f008bedfa80cc",

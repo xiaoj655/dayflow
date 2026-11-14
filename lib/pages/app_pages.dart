@@ -17,6 +17,7 @@ import '../widgets/minute_picker.dart';
 import '../widgets/segmented_day_timeline.dart';
 import '../widgets/focus_finished_view.dart';
 import '../widgets/focus_task_picker.dart';
+import '../widgets/home_focus_card.dart';
 
 const accent = AppColors.primary;
 const surface = AppColors.surface;
@@ -420,47 +421,12 @@ class _TaskListPageState extends State<TaskListPage> {
             if (controller.focus?.active == true)
               Padding(
                 padding: const EdgeInsets.only(bottom: 10),
-                child: FilledButton.tonal(
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 14,
-                    ),
-                    backgroundColor: surface,
-                    foregroundColor: AppColors.text,
-                    shape: const StadiumBorder(),
-                  ),
-                  onPressed: () => _focus(context),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.timer_outlined,
-                        size: 20,
-                        color:
-                            !controller.focus!.finished &&
-                                !controller.focus!.paused &&
-                                controller.focus!.kind == 'focus'
-                            ? AppColors.focus
-                            : muted,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          controller.focus!.finished
-                              ? '本次专注已结束'
-                              : controller.focus!.taskTitle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        controller.focus!.finished
-                            ? '查看'
-                            : timerText(controller.focus!.remainingSeconds),
-                      ),
-                    ],
-                  ),
+                child: HomeFocusCard(
+                  controller: controller,
+                  onOpen: () => _focus(context),
+                  onError: (message) {
+                    if (mounted) unawaited(explainError(context, message));
+                  },
                 ),
               ),
             if ((controller.initializing || controller.loading) &&
@@ -542,6 +508,18 @@ class _TaskListPageState extends State<TaskListPage> {
                   ),
                 ),
             ],
+            if (controller.focus?.active != true)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Tooltip(
+                  message: '专注',
+                  child: FilledButton.icon(
+                    onPressed: () => _startFreeFocus(context),
+                    icon: const Icon(Icons.timer_outlined, size: 20),
+                    label: const Text('开始自由专注'),
+                  ),
+                ),
+              ),
             if (controller.completed.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.fromLTRB(12, 18, 0, 10),
@@ -591,18 +569,6 @@ class _TaskListPageState extends State<TaskListPage> {
                   child: const Text(
                     '完成记录',
                     style: TextStyle(color: muted, fontSize: 11),
-                  ),
-                ),
-              ),
-            if (controller.focus?.active != true)
-              Padding(
-                padding: const EdgeInsets.only(top: 12),
-                child: Tooltip(
-                  message: '专注',
-                  child: FilledButton.icon(
-                    onPressed: () => _startFreeFocus(context),
-                    icon: const Icon(Icons.timer_outlined, size: 20),
-                    label: const Text('开始自由专注'),
                   ),
                 ),
               ),
