@@ -18,6 +18,7 @@ import '../widgets/segmented_day_timeline.dart';
 import '../widgets/focus_finished_view.dart';
 import '../widgets/focus_task_picker.dart';
 import '../widgets/home_focus_card.dart';
+import '../widgets/focus_task_brief.dart';
 
 const accent = AppColors.primary;
 const surface = AppColors.surface;
@@ -999,6 +1000,24 @@ Widget readableAction(BuildContext context, String value, Widget child) =>
       ),
     );
 
+Future<void> showFocusTaskBrief(
+  BuildContext context,
+  AppController controller,
+  DailyTask task, {
+  required bool isRound,
+}) => Navigator.push<void>(
+  context,
+  appRoute<void>(
+    context,
+    builder: (_) => FocusTaskBrief(
+      task:
+          controller.tasks.where((item) => item.id == task.id).firstOrNull ??
+          task,
+      isRound: isRound,
+    ),
+  ),
+);
+
 Widget taskInformation(String label, String? value) {
   if (value?.trim().isNotEmpty != true) return const SizedBox.shrink();
   return Padding(
@@ -1322,33 +1341,89 @@ class _FocusSetupPageState extends State<FocusSetupPage> {
       overflow: TextOverflow.ellipsis,
       style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
     );
-    final choose = widget.allowTaskSelection
+    final taskChoice = widget.allowTaskSelection
         ? TextButton.icon(
             key: const ValueKey('focus-task-selector'),
             style: TextButton.styleFrom(
               foregroundColor: AppColors.text,
               minimumSize: const Size(48, 32),
-              padding: const EdgeInsets.symmetric(horizontal: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 4),
             ),
-            onPressed: () async {
-              final selected = await Navigator.push<DailyTask>(
-                context,
-                appRoute<DailyTask>(
-                  context,
-                  builder: (_) => TaskPickerPage(
-                    controller: widget.controller,
-                    isRound: widget.isRound,
-                    initialSpace: task.space,
-                    selectedTaskId: task.id,
-                  ),
-                ),
-              );
-              if (selected != null && mounted) setState(() => task = selected);
-            },
+            onPressed: busy
+                ? null
+                : () async {
+                    final selected = await Navigator.push<DailyTask>(
+                      context,
+                      appRoute<DailyTask>(
+                        context,
+                        builder: (_) => TaskPickerPage(
+                          controller: widget.controller,
+                          isRound: widget.isRound,
+                          initialSpace: task.space,
+                          selectedTaskId: task.id,
+                        ),
+                      ),
+                    );
+                    if (selected != null && mounted) {
+                      setState(() => task = selected);
+                    }
+                  },
             label: taskHeading,
             icon: const Icon(Icons.expand_more_rounded, size: 18),
           )
-        : taskHeading;
+        : task.id.isEmpty
+        ? taskHeading
+        : TextButton(
+            key: const ValueKey('focus-task-brief'),
+            style: TextButton.styleFrom(
+              minimumSize: const Size(0, 28),
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              foregroundColor: AppColors.text,
+            ),
+            onPressed: busy
+                ? null
+                : () => showFocusTaskBrief(
+                    context,
+                    widget.controller,
+                    task,
+                    isRound: widget.isRound,
+                  ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(child: taskHeading),
+                const SizedBox(width: 4),
+                const Icon(Icons.info_outline_rounded, color: muted, size: 14),
+              ],
+            ),
+          );
+    final choose = widget.allowTaskSelection && task.id.isNotEmpty
+        ? Row(
+            children: [
+              Expanded(child: taskChoice),
+              IconButton(
+                key: const ValueKey('focus-task-brief'),
+                tooltip: '查看任务要点',
+                onPressed: busy
+                    ? null
+                    : () => showFocusTaskBrief(
+                        context,
+                        widget.controller,
+                        task,
+                        isRound: widget.isRound,
+                      ),
+                style: IconButton.styleFrom(
+                  minimumSize: const Size(28, 28),
+                  padding: EdgeInsets.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  foregroundColor: muted,
+                ),
+                icon: const Icon(Icons.info_outline_rounded, size: 16),
+              ),
+            ],
+          )
+        : taskChoice;
     final action = task.startAction?.trim();
     final hasAction = action?.isNotEmpty == true;
     final picker = Listener(
@@ -1422,11 +1497,19 @@ class _FocusSetupPageState extends State<FocusSetupPage> {
                 children: [
                   SizedBox(height: 28, child: Center(child: choose)),
                   if (hasAction)
-                    Text(
-                      action!,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: muted, fontSize: 11),
+                    IgnorePointer(
+                      ignoring: busy,
+                      child: readableAction(
+                        context,
+                        action!,
+                        Text(
+                          action,
+                          key: const ValueKey('focus-start-action'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: muted, fontSize: 11),
+                        ),
+                      ),
                     ),
                   Expanded(child: picker),
                   const Text(
@@ -1689,7 +1772,7 @@ class _FocusPageState extends State<FocusPage> {
           onReturn: () => _run(_returnTasks),
         );
       }
-      final title = Text(
+      final taskTitle = Text(
         focus.taskTitle,
         key: const ValueKey('active-focus-task'),
         maxLines: MediaQuery.sizeOf(context).shortestSide < 220 ? 1 : 2,
@@ -1702,6 +1785,38 @@ class _FocusPageState extends State<FocusPage> {
           height: 1.2,
         ),
       );
+      final title = focus.taskId.isEmpty
+          ? taskTitle
+          : TextButton(
+              key: const ValueKey('active-focus-brief'),
+              style: TextButton.styleFrom(
+                minimumSize: Size.zero,
+                padding: EdgeInsets.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                foregroundColor: AppColors.text,
+              ),
+              onPressed: busy
+                  ? null
+                  : () => showFocusTaskBrief(
+                      context,
+                      controller,
+                      _task(),
+                      isRound: isRound,
+                    ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Flexible(child: taskTitle),
+                  const SizedBox(width: 4),
+                  const Icon(
+                    Icons.info_outline_rounded,
+                    color: muted,
+                    size: 14,
+                  ),
+                ],
+              ),
+            );
       final action = focus.kind == 'focus' ? focus.startAction?.trim() : null;
       final hasAction = action?.isNotEmpty == true;
       final focusColor = !focus.paused && focus.kind == 'focus'

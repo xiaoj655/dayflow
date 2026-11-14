@@ -1,6 +1,6 @@
 # Dayflow
 
-Flutter 原生 Android 应用，手表执行任务、专注计时，手机编辑安排。直接连接 MySQL，Hermes 使用配套 skill 管理同一份任务数据，无后端 API。
+Flutter 原生 Android 应用，由 Hermes 编排与填写任务，手表查看、执行与专注计时，手机编辑作为备用入口。直接连接 MySQL，Hermes 使用配套 skill 管理同一份任务数据，无后端 API。
 
 每轮迭代的改进、修复和验证见 [更新记录](CHANGELOG.md)；公开版本与源码附件见 [GitHub Releases](https://github.com/xiaoj655/dayflow/releases)。
 
@@ -12,6 +12,7 @@ Flutter 原生 Android 应用，手表执行任务、专注计时，手机编辑
 - 专注时长 5–180 分钟、每格 5 分钟，表冠与鼠标滚轮切换带平滑动画；记忆上次实际启动的时长。暂停、继续、提前结束；结束短震两次，不自动休息或完成任务。
 - 首页进行中卡片可直接暂停／继续专注或休息，点击标题或倒计时进入完整计时页；自由专注入口放在已完成任务之前，全部任务完成后也可直接开始。
 - 首页任务播放键直接进入专注设置，标题与番茄次数查看详情；任务详情首尾仍有随内容滚动的专注按钮，任务内容按需展开。从任务进入设置时自动关联任务；通用入口保留选择功能。开始前和专注中显示任务名称，有启动动作时同步显示。
+- 在专注设置与计时页点击任务标题或信息图标，可查看 Hermes 已填的启动动作、最低目标、完成标准与完整内容；返回保留时长或当前计时，启动动作也可直接展开全文。
 - 专注选任务页可直接切换生活／工作，按所选生活日期或本周工作池选择待办，也可开始对应空间的自由专注；切换不改变首页空间或工作提醒。
 - 专注自动开启 App 自有勿扰规则，并通过小米系统联动手机；暂停、结束或提前停止后撤销本轮开启的勿扰，休息不启用。开始前已有勿扰时不接管；专注中观察到手动接管后不再撤销。首次开始前需授予通知、闹钟、勿扰控制和小米联动所需权限。
 - 定时任务主动提醒、稍后再做及今天跳过暂不实现。
@@ -42,31 +43,35 @@ Flutter 原生 Android 应用，手表执行任务、专注计时，手机编辑
   </tr>
   <tr>
     <td align="center"><img src="docs/screenshots/focus-setup.png" width="200" height="200" alt="关联任务专注"><br>关联任务专注</td>
+    <td align="center"><img src="docs/screenshots/focus-task-brief.png" width="200" height="200" alt="专注任务要点"><br>专注任务要点</td>
+    <td align="center"><img src="docs/screenshots/focus-start-action.png" width="200" height="200" alt="完整启动动作"><br>完整启动动作</td>
+  </tr>
+  <tr>
     <td align="center"><img src="docs/screenshots/free-focus-setup.png" width="200" height="200" alt="自由专注设置"><br>自由专注设置</td>
     <td align="center"><img src="docs/screenshots/task-picker.png" width="200" height="200" alt="选择关联任务"><br>选择关联任务</td>
+    <td align="center"><img src="docs/screenshots/focus-running.png" width="200" height="200" alt="专注计时"><br>专注计时</td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/screenshots/focus-running.png" width="200" height="200" alt="专注计时"><br>专注计时</td>
     <td align="center"><img src="docs/screenshots/focus-paused.png" width="200" height="200" alt="专注暂停"><br>专注暂停</td>
     <td align="center"><img src="docs/screenshots/focus-finished.png" width="200" height="200" alt="专注结束"><br>专注结束</td>
+    <td align="center"><img src="docs/screenshots/rest-running.png" width="200" height="200" alt="休息计时"><br>休息计时</td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/screenshots/rest-running.png" width="200" height="200" alt="休息计时"><br>休息计时</td>
     <td align="center"><img src="docs/screenshots/rest-finished.png" width="200" height="200" alt="休息结束"><br>休息结束</td>
     <td align="center"><img src="docs/screenshots/analysis.png" width="200" height="200" alt="专注分析"><br>专注分析</td>
+    <td align="center"><img src="docs/screenshots/analysis-empty.png" width="200" height="200" alt="空分析"><br>空分析</td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/screenshots/analysis-empty.png" width="200" height="200" alt="空分析"><br>空分析</td>
     <td align="center"><img src="docs/screenshots/work-mode.png" width="200" height="200" alt="工作提醒已关闭"><br>工作提醒已关闭</td>
     <td align="center"><img src="docs/screenshots/work-active.png" width="200" height="200" alt="工作提醒已开启"><br>工作提醒已开启</td>
+    <td align="center"><img src="docs/screenshots/work-reminders.png" width="200" height="200" alt="休息提醒设置"><br>休息提醒设置</td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/screenshots/work-reminders.png" width="200" height="200" alt="休息提醒设置"><br>休息提醒设置</td>
     <td align="center"><img src="docs/screenshots/work-schedule.png" width="200" height="200" alt="提醒时段设置"><br>提醒时段设置</td>
     <td align="center"><img src="docs/screenshots/reminder-interval.png" width="200" height="200" alt="提醒间隔"><br>提醒间隔</td>
+    <td align="center"><img src="docs/screenshots/work-end-time.png" width="200" height="200" alt="自动关闭时间"><br>自动关闭时间</td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/screenshots/work-end-time.png" width="200" height="200" alt="自动关闭时间"><br>自动关闭时间</td>
     <td align="center"><img src="docs/screenshots/work-history.png" width="200" height="200" alt="工作完成记录"><br>工作完成记录</td>
   </tr>
 </table>

@@ -32,6 +32,8 @@ PAGES = (
     ('task-detail', '任务详情'),
     ('task-editor', '任务编辑'),
     ('focus-setup', '关联任务专注'),
+    ('focus-task-brief', '专注任务要点'),
+    ('focus-start-action', '完整启动动作'),
     ('free-focus-setup', '自由专注设置'),
     ('task-picker', '选择关联任务'),
     ('focus-running', '专注计时'),

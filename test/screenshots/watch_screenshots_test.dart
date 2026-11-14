@@ -224,6 +224,16 @@ void main() {
           ),
         );
         await capture('focus-setup');
+        await tester.tap(find.byKey(const ValueKey('focus-task-brief')));
+        await tester.pumpAndSettle();
+        expect(find.text('最低目标'), findsOneWidget);
+        await capture('focus-task-brief');
+        await back();
+        await tester.tap(find.byKey(const ValueKey('focus-start-action')));
+        await tester.pumpAndSettle();
+        expect(find.text('启动动作'), findsOneWidget);
+        await capture('focus-start-action');
+        await back();
         await back();
 
         await open(TaskEditorPage(controller: controller, task: task));
