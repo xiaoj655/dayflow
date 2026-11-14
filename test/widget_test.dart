@@ -686,10 +686,10 @@ void main() {
         await app.refreshFocus();
         await tester.pumpAndSettle();
         expect(app.focus!.finished, isTrue);
-        await tester.tap(find.text('本次专注已结束'));
+        await tester.tap(find.byKey(const ValueKey('last-focus-summary')));
         await tester.pumpAndSettle();
         expect(find.byType(FocusPage), findsOneWidget);
-        expect(find.text(kind == 'rest' ? '休息结束' : '本次专注完成'), findsOneWidget);
+        expect(find.text(kind == 'rest' ? '休息结束' : '专注完成'), findsOneWidget);
         expect(find.text(first.title), findsOneWidget);
         Navigator.of(tester.element(find.byType(FocusPage))).pop();
         await tester.pumpAndSettle();
@@ -780,10 +780,12 @@ void main() {
       engine.elapse(const Duration(minutes: 5));
       await app.refreshFocus();
       await tester.pumpAndSettle();
-      await tester.tap(find.text('本次专注已结束'));
+      await tester.tap(find.byKey(const ValueKey('last-focus-summary')));
       await tester.pumpAndSettle();
-      final button = find.text(action);
-      await reveal(tester, button);
+      final button = action == '返回任务'
+          ? find.byKey(const ValueKey('focus-finished-return'))
+          : find.text(action);
+      expect(button.hitTestable(), findsOneWidget);
       engine.calls.clear();
       engine.delayNext = true;
       await tester.tap(button);
@@ -798,13 +800,15 @@ void main() {
       );
       expect(
         tester
-            .widget<OutlinedButton>(find.widgetWithText(OutlinedButton, '休息一下'))
+            .widget<FilledButton>(find.widgetWithText(FilledButton, '休息一下'))
             .onPressed,
         isNull,
       );
       expect(
         tester
-            .widget<TextButton>(find.widgetWithText(TextButton, '返回任务'))
+            .widget<IconButton>(
+              find.byKey(const ValueKey('focus-finished-return')),
+            )
             .onPressed,
         isNull,
       );
@@ -838,10 +842,10 @@ void main() {
     engine.elapse(const Duration(minutes: 5));
     await app.refreshFocus();
     await tester.pumpAndSettle();
-    await tester.tap(find.text('本次专注已结束'));
+    await tester.tap(find.byKey(const ValueKey('last-focus-summary')));
     await tester.pumpAndSettle();
-    final rest = find.widgetWithText(OutlinedButton, '休息一下');
-    await reveal(tester, rest);
+    final rest = find.widgetWithText(FilledButton, '休息一下');
+    expect(rest.hitTestable(), findsOneWidget);
     engine.delayNext = true;
     await tester.tap(rest);
     engine.response.completeError(
@@ -849,7 +853,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(app.focus!.finished, isTrue);
-    expect(tester.widget<OutlinedButton>(rest).onPressed, isNotNull);
+    expect(tester.widget<FilledButton>(rest).onPressed, isNotNull);
     await tester.tap(rest);
     await tester.pumpAndSettle();
     expect(app.focus!.kind, 'rest');
@@ -913,11 +917,10 @@ void main() {
     engine.elapse(const Duration(minutes: 5));
     await app.refreshFocus();
     await tester.pumpAndSettle();
-    await tester.tap(find.text('本次专注已结束'));
+    await tester.tap(find.byKey(const ValueKey('last-focus-summary')));
     await tester.pumpAndSettle();
-    await reveal(tester, find.text('返回任务'));
     engine.delayNext = true;
-    await tester.tap(find.text('返回任务'));
+    await tester.tap(find.byKey(const ValueKey('focus-finished-return')));
     await tester.pump();
     final focusContext = tester.element(find.byType(FocusPage));
     Navigator.of(focusContext).push(

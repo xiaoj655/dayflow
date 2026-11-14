@@ -15,6 +15,7 @@ import '../widgets/screen_viewport.dart';
 import '../widgets/wear_controls.dart';
 import '../widgets/minute_picker.dart';
 import '../widgets/segmented_day_timeline.dart';
+import '../widgets/focus_finished_view.dart';
 
 const accent = AppColors.primary;
 const surface = AppColors.surface;
@@ -278,6 +279,21 @@ class _TaskListPageState extends State<TaskListPage> {
       Navigator.push(context, appRoute<void>(context, builder: (_) => page));
   void _focus(BuildContext context) =>
       _open(context, FocusPage(controller: controller, isRound: isRound));
+  void _focusTask(BuildContext context, DailyTask task) {
+    if (controller.focus?.active == true) {
+      if (controller.focus!.taskId == task.id) _focus(context);
+      return;
+    }
+    _open(
+      context,
+      FocusSetupPage(
+        controller: controller,
+        isRound: isRound,
+        initialTask: task,
+      ),
+    );
+  }
+
   void _startFreeFocus(BuildContext context) => _open(
     context,
     FocusSetupPage(
@@ -357,6 +373,30 @@ class _TaskListPageState extends State<TaskListPage> {
                 TaskDatePage(controller: controller, isRound: isRound),
               ),
             ),
+            if (controller.focus?.finished == true)
+              Center(
+                child: TextButton.icon(
+                  key: const ValueKey('last-focus-summary'),
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size(0, 28),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    foregroundColor: muted,
+                    textStyle: const TextStyle(
+                      fontFamily: 'Roboto',
+                      fontSize: 11,
+                    ),
+                  ),
+                  onPressed: () => _focus(context),
+                  icon: const Icon(Icons.history_rounded, size: 14),
+                  label: Text(
+                    controller.focus!.kind == 'rest' ? '休息已结束' : '本次专注已结束',
+                  ),
+                ),
+              ),
             const SizedBox(height: 4),
             if (!isRound)
               Row(
@@ -376,7 +416,7 @@ class _TaskListPageState extends State<TaskListPage> {
                   ),
                 ],
               ),
-            if (controller.focus != null)
+            if (controller.focus?.active == true)
               Padding(
                 padding: const EdgeInsets.only(bottom: 10),
                 child: FilledButton.tonal(
@@ -465,6 +505,17 @@ class _TaskListPageState extends State<TaskListPage> {
                 TaskTile(
                   task: task,
                   focusCount: controller.focusCount(task),
+                  onFocus:
+                      controller.focus?.active != true ||
+                          controller.focus!.taskId == task.id
+                      ? () => _focusTask(context, task)
+                      : null,
+                  focusActive:
+                      controller.focus?.active == true &&
+                      controller.focus!.taskId == task.id,
+                  focusLabel: controller.focus?.active == true
+                      ? '返回专注：${task.title}'
+                      : '开始专注：${task.title}',
                   onToggle: () async {
                     await controller.toggle(task);
                     TouchHaptics.selectionClick();
@@ -808,11 +859,17 @@ class TaskTile extends StatelessWidget {
     required this.onTap,
     this.onToggle,
     this.focusCount,
+    this.onFocus,
+    this.focusActive = false,
+    this.focusLabel,
   });
   final DailyTask task;
   final VoidCallback onTap;
   final VoidCallback? onToggle;
   final int? focusCount;
+  final VoidCallback? onFocus;
+  final bool focusActive;
+  final String? focusLabel;
   @override
   Widget build(BuildContext context) {
     final subtitle = [
@@ -854,67 +911,66 @@ class TaskTile extends StatelessWidget {
                   child: Padding(
                     padding: EdgeInsets.fromLTRB(
                       onToggle == null ? 16 : 0,
-                      8,
-                      12,
-                      8,
+                      onFocus == null ? 8 : 6,
+                      onFocus == null ? 12 : 4,
+                      onFocus == null ? 8 : 6,
                     ),
-                    child: Row(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                task.title,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                  height: 1.3,
-                                  color: task.completed
-                                      ? muted
-                                      : AppColors.text,
-                                ),
-                              ),
-                              if (subtitle.isNotEmpty)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 4),
-                                  child: Text(
-                                    subtitle,
-                                    style: const TextStyle(
-                                      color: muted,
-                                      fontSize: 11,
-                                    ),
-                                  ),
-                                ),
-                            ],
+                        Text(
+                          task.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            height: 1.3,
+                            color: task.completed ? muted : AppColors.text,
                           ),
                         ),
-                        const SizedBox(width: 6),
-                        Semantics(
-                          label: '已完成${focusCount ?? task.focusCount}个番茄钟',
-                          child: ExcludeSemantics(
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(
-                                  Icons.timer_outlined,
-                                  size: 14,
-                                  color: muted,
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Semantics(
+                              label: '已完成${focusCount ?? task.focusCount}个番茄钟',
+                              child: ExcludeSemantics(
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      Icons.timer_outlined,
+                                      size: 14,
+                                      color: muted,
+                                    ),
+                                    const SizedBox(width: 2),
+                                    Text(
+                                      '${focusCount ?? task.focusCount}',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: muted,
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                                const SizedBox(width: 2),
-                                Text(
-                                  '${focusCount ?? task.focusCount}',
+                              ),
+                            ),
+                            if (subtitle.isNotEmpty) ...[
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  subtitle,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(
-                                    fontSize: 12,
                                     color: muted,
+                                    fontSize: 11,
                                   ),
                                 ),
-                              ],
-                            ),
-                          ),
+                              ),
+                            ],
+                          ],
                         ),
                       ],
                     ),
@@ -922,6 +978,33 @@ class TaskTile extends StatelessWidget {
                 ),
               ),
             ),
+            if (onFocus != null)
+              Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: IconButton(
+                  key: ValueKey('task-focus-${task.id}'),
+                  tooltip:
+                      focusLabel ??
+                      '${focusActive ? '返回专注' : '开始专注'}：${task.title}',
+                  constraints: const BoxConstraints.tightFor(
+                    width: 40,
+                    height: 40,
+                  ),
+                  style: IconButton.styleFrom(
+                    minimumSize: const Size(40, 40),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    backgroundColor: AppColors.overlay,
+                    foregroundColor: AppColors.text,
+                  ),
+                  onPressed: onFocus,
+                  icon: Icon(
+                    focusActive
+                        ? Icons.timer_outlined
+                        : Icons.play_arrow_rounded,
+                    size: 22,
+                  ),
+                ),
+              ),
           ],
         ),
       ),
@@ -1244,13 +1327,14 @@ class _FocusSetupPageState extends State<FocusSetupPage> {
       if (!mounted || ModalRoute.of(context)?.isCurrent != true) return;
       await widget.controller.start(task, selectedMinutes);
       if (!mounted || ModalRoute.of(context)?.isCurrent != true) return;
-      Navigator.pushReplacement(
+      Navigator.pushAndRemoveUntil(
         context,
         appRoute<void>(
           context,
           builder: (_) =>
               FocusPage(controller: widget.controller, isRound: widget.isRound),
         ),
+        (route) => route.isFirst,
       );
     } on PlatformException catch (error) {
       if (mounted) await explainError(context, error.message ?? '暂时无法开始专注');
@@ -1404,14 +1488,18 @@ class TaskPickerPage extends StatelessWidget {
     super.key,
     required this.controller,
     required this.isRound,
+    this.pendingOnly = false,
+    this.title = '关联任务',
   });
   final AppController controller;
   final bool isRound;
+  final bool pendingOnly;
+  final String title;
   @override
   Widget build(BuildContext context) => AppPage(
     isRound: isRound,
     children: [
-      backHeader(context, '关联任务'),
+      backHeader(context, title),
       TextButton(
         onPressed: () => Navigator.pop(
           context,
@@ -1424,10 +1512,22 @@ class TaskPickerPage extends StatelessWidget {
             space: controller.space,
           ),
         ),
-        child: const Text('不关联任务'),
+        child: Text(pendingOnly ? '自由专注' : '不关联任务'),
       ),
       const SizedBox(height: 8),
-      for (final task in [...controller.pending, ...controller.completed])
+      if (pendingOnly && controller.pending.isEmpty)
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 8),
+          child: Text(
+            '待办已完成，也可以自由专注',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: muted, fontSize: 12),
+          ),
+        ),
+      for (final task in [
+        ...controller.pending,
+        if (!pendingOnly) ...controller.completed,
+      ])
         TaskTile(
           task: task,
           focusCount: controller.focusCount(task),
@@ -1499,6 +1599,47 @@ class _FocusPageState extends State<FocusPage> {
           content: '',
           startAction: focus.startAction,
         );
+  }
+
+  Future<void> _nextFocus(
+    DailyTask task, {
+    bool allowTaskSelection = false,
+  }) async {
+    if (!await _action('dismiss') || !mounted || !isCurrent) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      appRoute<void>(
+        context,
+        builder: (_) => FocusSetupPage(
+          controller: controller,
+          isRound: isRound,
+          initialTask: task,
+          allowTaskSelection: allowTaskSelection,
+        ),
+      ),
+      (route) => route.isFirst,
+    );
+  }
+
+  Future<void> _changeTask() async {
+    final selected = await Navigator.push<DailyTask>(
+      context,
+      appRoute<DailyTask>(
+        context,
+        builder: (_) => TaskPickerPage(
+          controller: controller,
+          isRound: isRound,
+          pendingOnly: true,
+          title: '下一项任务',
+        ),
+      ),
+    );
+    if (selected == null || !mounted || !isCurrent) return;
+    await _nextFocus(selected, allowTaskSelection: true);
+  }
+
+  Future<void> _returnTasks() async {
+    if (!await _action('dismiss') || !mounted || !isCurrent) return;
+    Navigator.popUntil(context, (route) => route.isFirst);
   }
 
   Widget _controls(BuildContext context) => Row(
@@ -1575,78 +1716,33 @@ class _FocusPageState extends State<FocusPage> {
         );
       }
       if (focus.finished) {
-        return AppPage(
+        final task = controller.tasks
+            .where((task) => task.id == focus.taskId)
+            .firstOrNull;
+        return FocusFinishedView(
           isRound: isRound,
-          bottomAction: WearEdgeButton(
-            onPressed: busy
-                ? null
-                : () => _run(() async {
-                    final task = _task();
-                    if (!await _action('dismiss')) return;
-                    if (context.mounted && isCurrent) {
-                      Navigator.pushReplacement(
-                        context,
-                        appRoute<void>(
-                          context,
-                          builder: (_) => FocusSetupPage(
-                            controller: controller,
-                            isRound: isRound,
-                            initialTask: task,
-                          ),
-                        ),
-                      );
-                    }
-                  }),
-            label: '继续专注',
-            icon: Icons.play_arrow_rounded,
+          taskTitle: focus.taskTitle,
+          minutes: focus.plannedSeconds ~/ 60,
+          isRest: focus.kind == 'rest',
+          busy: busy,
+          taskCompleted: task?.completed == true,
+          onTaskCompletion: task == null || task.id.isEmpty
+              ? null
+              : () => _run(
+                  () => controller.setCompleted(task, !task.completed),
+                  errorMessage: '暂时无法更改任务状态，请重试',
+                ),
+          onContinue: () => _run(
+            () => _nextFocus(_task(), allowTaskSelection: focus.taskId.isEmpty),
           ),
-          children: [
-            const SizedBox(height: 8),
-            const Icon(
-              Icons.check_circle_outline_rounded,
-              color: AppColors.muted,
-              size: 32,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              focus.kind == 'rest' ? '休息结束' : '本次专注完成',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              focus.taskTitle,
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: muted, fontSize: 14),
-            ),
-            Text(
-              '${focus.plannedSeconds ~/ 60} 分钟',
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w500),
-            ),
-            const SizedBox(height: 16),
-            if (focus.kind != 'rest')
-              OutlinedButton(
-                onPressed: busy
-                    ? null
-                    : () => _run(() async {
-                        await controller.start(_task(), 5, rest: true);
-                      }, errorMessage: '暂时无法开始休息'),
-                child: const Text('休息一下'),
-              ),
-            TextButton(
-              onPressed: busy
-                  ? null
-                  : () => _run(() async {
-                      if (await _action('dismiss') &&
-                          context.mounted &&
-                          isCurrent) {
-                        Navigator.pop(context);
-                      }
-                    }),
-              child: const Text('返回任务'),
-            ),
-          ],
+          onChangeTask: () => _run(_changeTask),
+          onRest: focus.kind == 'rest'
+              ? null
+              : () => _run(
+                  () => controller.start(_task(), 5, rest: true),
+                  errorMessage: '暂时无法开始休息',
+                ),
+          onReturn: () => _run(_returnTasks),
         );
       }
       final title = Text(

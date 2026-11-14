@@ -246,7 +246,7 @@ void main() {
         engine.elapse(const Duration(minutes: 25));
         await controller.refreshFocus();
         await tester.pumpAndSettle();
-        expect(find.text('本次专注完成'), findsOneWidget);
+        expect(find.text('专注完成'), findsOneWidget);
         await capture('focus-finished');
         await back();
         await controller.focusAction('dismiss');
