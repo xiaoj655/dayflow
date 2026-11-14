@@ -1,0 +1,181 @@
+name: Publish verified source release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*.*.*']
+    paths: ['.github/workflows/release.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: dayflow-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify tag and successful CI
+        id: verify
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require('fs');
+            const { execFileSync } = require('child_process');
+            const version = fs.readFileSync('pubspec.yaml', 'utf8').match(/^version:\s*([^\s+]+)/m)?.[1];
+            const tag = process.env.GITHUB_REF_TYPE === 'tag' ? process.env.GITHUB_REF_NAME : `v${version}`;
+            if (!/^v\d+\.\d+\.\d+$/.test(tag)) throw new Error('Expected a stable vMAJOR.MINOR.PATCH tag');
+            let commit;
+            try {
+              commit = execFileSync('git', ['rev-parse', `${tag}^{commit}`], { encoding: 'utf8' }).trim();
+            } catch (error) {
+              if (process.env.GITHUB_REF_TYPE === 'tag') throw error;
+              core.info(`No ${tag} tag yet; publication will run when it is pushed`);
+              core.setOutput('ready', 'false');
+              return;
+            }
+            core.setOutput('tag', tag);
+            core.setOutput('commit', commit);
+            for (let attempt = 0; attempt < 180; attempt++) {
+              const { data } = await github.rest.actions.listWorkflowRunsForRepo({
+                ...context.repo, event: 'push', head_sha: commit, per_page: 100,
+              });
+              const run = data.workflow_runs.find(run =>
+                run.name === 'Check source and Android build' && run.head_branch === 'main' && run.head_sha === commit);
+              if (run?.status === 'completed') {
+                if (run.conclusion !== 'success') throw new Error(`CI did not pass: ${run.html_url}`);
+                core.info(`Verified ${tag} at ${commit}: ${run.html_url}`);
+                core.setOutput('ready', 'true');
+                return;
+              }
+              await new Promise(resolve => setTimeout(resolve, 15000));
+            }
+            throw new Error('No successful CI run was available for the tagged commit');
+      - name: Prepare source and release notes from the tagged commit
+        if: steps.verify.outputs.ready == 'true'
+        env:
+          RELEASE_TAG: ${{ steps.verify.outputs.tag }}
+          RELEASE_COMMIT: ${{ steps.verify.outputs.commit }}
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import importlib.util
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import subprocess
+          import tarfile
+          import tempfile
+          import zipfile
+
+          tag, commit = os.environ['RELEASE_TAG'], os.environ['RELEASE_COMMIT']
+          version = tag.removeprefix('v')
+          output = Path('build/release').resolve()
+          output.mkdir(parents=True, exist_ok=True)
+          with tempfile.TemporaryDirectory() as directory:
+              directory = Path(directory)
+              source = directory / 'source'
+              source.mkdir()
+              archive_path = directory / 'source.tar'
+              subprocess.run(['git', 'archive', '--format=tar', '-o', str(archive_path), commit], check=True)
+              with tarfile.open(archive_path) as archive:
+                  archive.extractall(source, filter='data')
+              saved_version = re.search(r'^version:\s*([^\s+]+)', (source / 'pubspec.yaml').read_text(), re.M).group(1)
+              if saved_version != version:
+                  raise SystemExit('The tag and pubspec version differ')
+              spec = importlib.util.spec_from_file_location('export_source', source / 'scripts/export_source.py')
+              exporter = importlib.util.module_from_spec(spec)
+              spec.loader.exec_module(exporter)
+              asset = output / f'dayflow-{tag}-source.zip'
+              exporter.export(source, asset)
+              tracked = subprocess.check_output(['git', 'ls-tree', '-r', '--name-only', commit], text=True).splitlines()
+              with zipfile.ZipFile(asset) as archive:
+                  if set(archive.namelist()) != {f'dayflow/{name}' for name in tracked}:
+                      raise SystemExit('The source archive differs from the public tagged tree')
+              digest = hashlib.sha256(asset.read_bytes()).hexdigest()
+              (output / 'SHA256SUMS').write_text(f'{digest}  {asset.name}\n')
+              lines = (source / 'CHANGELOG.md').read_text().splitlines()
+              start = next(i for i, line in enumerate(lines) if line.startswith(f'## {version} —')) + 1
+              end = next((i for i in range(start, len(lines)) if lines[i].startswith('## ')), len(lines))
+              notes = '\n'.join(lines[start:end]).strip()
+              if not notes:
+                  raise SystemExit('Release notes are missing')
+              manifest = {'tag': tag, 'commit': commit, 'notes': notes, 'assets': [asset.name, 'SHA256SUMS']}
+              (output / 'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False))
+              print(f'Prepared {tag}: {len(tracked)} public source files')
+          PY
+      - name: Publish release with verified assets
+        if: steps.verify.outputs.ready == 'true'
+        id: publish
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require('fs');
+            const crypto = require('crypto');
+            const root = 'build/release';
+            const manifest = JSON.parse(fs.readFileSync(`${root}/manifest.json`, 'utf8'));
+            let release;
+            try {
+              release = (await github.rest.repos.getReleaseByTag({ ...context.repo, tag: manifest.tag })).data;
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              const releases = await github.paginate(github.rest.repos.listReleases, { ...context.repo, per_page: 100 });
+              release = releases.find(item => item.tag_name === manifest.tag);
+              if (!release) {
+                release = (await github.rest.repos.createRelease({
+                  ...context.repo, tag_name: manifest.tag, target_commitish: manifest.commit,
+                  name: `Dayflow ${manifest.tag}`, body: manifest.notes, draft: true, prerelease: false,
+                })).data;
+              }
+            }
+            function verifyAssets(release) {
+              if (release.assets.length !== manifest.assets.length) throw new Error('Unexpected release assets');
+              for (const name of manifest.assets) {
+                const asset = release.assets.find(asset => asset.name === name);
+                const data = fs.readFileSync(`${root}/${name}`);
+                const digest = `sha256:${crypto.createHash('sha256').update(data).digest('hex')}`;
+                if (!asset || asset.size !== data.length || (asset.digest && asset.digest !== digest)) {
+                  throw new Error(`Release asset verification failed: ${name}`);
+                }
+              }
+            }
+            if (release.assets.some(asset => !manifest.assets.includes(asset.name))) {
+              throw new Error('Refusing to publish unexpected attachments');
+            }
+            if (release.draft) {
+              for (const name of manifest.assets) {
+                const existing = release.assets.find(asset => asset.name === name);
+                if (existing) await github.rest.repos.deleteReleaseAsset({ ...context.repo, asset_id: existing.id });
+                const data = fs.readFileSync(`${root}/${name}`);
+                const asset = (await github.rest.repos.uploadReleaseAsset({
+                  ...context.repo, release_id: release.id, name, data,
+                  headers: { 'content-type': name.endsWith('.zip') ? 'application/zip' : 'text/plain' },
+                })).data;
+                const digest = `sha256:${crypto.createHash('sha256').update(data).digest('hex')}`;
+                if (asset.size !== data.length || (asset.digest && asset.digest !== digest)) {
+                  throw new Error(`Uploaded asset verification failed: ${name}`);
+                }
+              }
+              release = (await github.rest.repos.getRelease({ ...context.repo, release_id: release.id })).data;
+              verifyAssets(release);
+              release = (await github.rest.repos.updateRelease({
+                ...context.repo, release_id: release.id, name: `Dayflow ${manifest.tag}`,
+                body: manifest.notes, draft: false,
+              })).data;
+            }
+            verifyAssets(release);
+            if (release.draft || release.body.trim() !== manifest.notes.trim()) {
+              throw new Error('The release is incomplete');
+            }
+            core.setOutput('url', release.html_url);
+            await core.summary.addHeading(`Dayflow ${manifest.tag}`).addLink('Release', release.html_url).write();
