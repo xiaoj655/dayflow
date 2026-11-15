@@ -13,6 +13,62 @@ import '../platform/rotary_input.dart';
 import '../platform/touch_haptics.dart';
 import 'app_clock.dart';
 
+/// Shared, neutral space selection for the task list and focus picker.
+class WearSpaceSelector extends StatelessWidget {
+  const WearSpaceSelector({
+    super.key,
+    required this.space,
+    required this.onSelected,
+    this.keyPrefix,
+  });
+
+  final String space;
+  final ValueChanged<String> onSelected;
+  final String? keyPrefix;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(30),
+      ),
+      foregroundDecoration: const ShapeDecoration(
+        shape: StadiumBorder(side: BorderSide(color: AppColors.outline)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (final entry in {'life': '生活', 'work': '工作'}.entries)
+            Semantics(
+              selected: space == entry.key,
+              child: TextButton(
+                key: keyPrefix == null
+                    ? null
+                    : ValueKey('$keyPrefix-${entry.key}'),
+                style: TextButton.styleFrom(
+                  minimumSize: const Size(60, 30),
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  backgroundColor: space == entry.key
+                      ? AppColors.text
+                      : Colors.transparent,
+                  foregroundColor: space == entry.key
+                      ? AppColors.background
+                      : AppColors.muted,
+                  shape: const StadiumBorder(),
+                ),
+                onPressed: () => onSelected(entry.key),
+                child: Text(entry.value, style: const TextStyle(fontSize: 12)),
+              ),
+            ),
+        ],
+      ),
+    ),
+  );
+}
+
 /// Main action whose lower edge follows the circular display.
 class WearEdgeButton extends StatelessWidget {
   const WearEdgeButton({

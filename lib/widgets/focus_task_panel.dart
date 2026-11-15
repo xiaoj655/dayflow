@@ -15,26 +15,26 @@ class FocusTaskPanel extends StatelessWidget {
 
   Widget _section(String label, String value, {String? keySuffix}) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             label,
             style: const TextStyle(
-              color: AppColors.muted,
+              color: AppColors.faint,
               fontSize: 10,
               height: 1.2,
             ),
           ),
-          const SizedBox(height: 3),
+          const SizedBox(height: 4),
           Text(
             value,
             key: keySuffix == null ? null : ValueKey('focus-panel-$keySuffix'),
             style: const TextStyle(
               color: AppColors.text,
-              fontSize: 12,
-              height: 1.3,
+              fontSize: 13,
+              height: 1.4,
             ),
           ),
         ],
@@ -81,8 +81,9 @@ class FocusTaskPanel extends StatelessWidget {
     if (sections.isEmpty) return const SizedBox.shrink();
     return Container(
       decoration: BoxDecoration(
-        color: AppColors.overlay,
-        borderRadius: BorderRadius.circular(14),
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.outline),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       child: SingleChildScrollView(

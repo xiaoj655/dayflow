@@ -157,6 +157,9 @@ class _ShapeScrollViewState extends State<ShapeScrollView>
               fit: StackFit.expand,
               children: [
                 ListView(
+                  // Headers, gaps and controls are not indexed data rows.
+                  // Each control keeps its own label and action semantics.
+                  addSemanticIndexes: false,
                   key: widget.storageKey,
                   controller: _controller,
                   physics: const BouncingScrollPhysics(

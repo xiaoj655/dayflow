@@ -4,9 +4,13 @@ import 'package:flutter/material.dart';
 abstract final class AppColors {
   static const background = Color(0xFF000000);
   static const surface = Color(0xFF161616);
+  static const surfaceRaised = Color(0xFF1E1E1E);
   static const overlay = Color(0xFF262626);
+  static const outline = Color(0xFF343434);
+  static const track = Color(0xFF303030);
   static const faint = Color(0xFF888888);
   static const primary = Color(0xFFFF2056);
+  static const onPrimary = background;
   static const text = Color(0xFFFFFFFF);
   static const muted = Color(0xFFC5C5C5);
   static const taskProgress = Color(0xFFB8DCC6);

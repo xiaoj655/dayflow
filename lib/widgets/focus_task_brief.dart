@@ -65,15 +65,27 @@ class _FocusTaskBriefState extends State<FocusTaskBrief> {
     );
   }
 
-  Widget _information(String id, String label, String value) => Padding(
-    padding: const EdgeInsets.fromLTRB(8, 0, 8, 18),
+  Widget _information(String id, String label, String value) => Container(
+    margin: const EdgeInsets.only(bottom: 8),
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: id == 'start-action' ? AppColors.surfaceRaised : AppColors.surface,
+      borderRadius: BorderRadius.circular(18),
+      border: id == 'start-action'
+          ? Border.all(color: AppColors.outline)
+          : null,
+    ),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (label.isNotEmpty) ...[
           Text(
             label,
-            style: const TextStyle(color: AppColors.muted, fontSize: 12),
+            style: const TextStyle(
+              color: AppColors.muted,
+              fontSize: 11,
+              height: 1.2,
+            ),
           ),
           const SizedBox(height: 6),
         ],
@@ -94,27 +106,60 @@ class _FocusTaskBriefState extends State<FocusTaskBrief> {
     if (!_hasText(value)) return const [];
     final open = expanded.contains(id);
     return [
-      TextButton(
-        key: ValueKey('focus-brief-$id-toggle'),
-        style: TextButton.styleFrom(
-          foregroundColor: AppColors.muted,
-          textStyle: const TextStyle(fontFamily: 'Roboto', fontSize: 13),
+      Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(18),
         ),
-        onPressed: () => setState(() {
-          if (!expanded.add(id)) expanded.remove(id);
-        }),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Expanded(child: Text(label)),
-            const SizedBox(width: 8),
-            Icon(
-              open ? Icons.expand_less_rounded : Icons.expand_more_rounded,
-              size: 18,
+            TextButton(
+              key: ValueKey('focus-brief-$id-toggle'),
+              style: TextButton.styleFrom(
+                foregroundColor: open ? AppColors.text : AppColors.muted,
+                minimumSize: const Size(0, 40),
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                textStyle: const TextStyle(fontFamily: 'Roboto', fontSize: 13),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              onPressed: () => setState(() {
+                if (!expanded.add(id)) expanded.remove(id);
+              }),
+              child: Row(
+                children: [
+                  Expanded(child: Text(label)),
+                  const SizedBox(width: 8),
+                  Icon(
+                    open
+                        ? Icons.expand_less_rounded
+                        : Icons.expand_more_rounded,
+                    size: 18,
+                    color: AppColors.faint,
+                  ),
+                ],
+              ),
             ),
+            if (open)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                child: Text(
+                  value!,
+                  key: ValueKey('focus-brief-$id'),
+                  style: const TextStyle(
+                    color: AppColors.text,
+                    fontSize: 15,
+                    height: 1.45,
+                  ),
+                ),
+              ),
           ],
         ),
       ),
-      if (open) _information(id, '', value!),
     ];
   }
 
@@ -146,7 +191,7 @@ class _FocusTaskBriefState extends State<FocusTaskBrief> {
                 ),
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 14),
             if (task.steps.isNotEmpty)
               TaskSteps(task: task, onChanged: widget.onStepChanged),
             if (_hasText(task.startAction))

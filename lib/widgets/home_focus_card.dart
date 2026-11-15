@@ -66,6 +66,7 @@ class _HomeFocusCardState extends State<HomeFocusCard> {
       final session = widget.controller.focus;
       if (session == null || !session.active) return const SizedBox.shrink();
       final rest = session.kind == 'rest';
+      final focusing = !session.paused && !rest;
       final state = session.paused ? '已暂停' : (rest ? '休息中' : '专注中');
       final action = '${session.paused ? '继续' : '暂停'}${rest ? '休息' : '专注'}';
       final timer = _timer(session.remainingSeconds);
@@ -76,7 +77,7 @@ class _HomeFocusCardState extends State<HomeFocusCard> {
       return Material(
         key: const ValueKey('home-focus-card'),
         color: AppColors.surface,
-        shape: const StadiumBorder(),
+        shape: const StadiumBorder(side: BorderSide(color: AppColors.outline)),
         clipBehavior: Clip.antiAlias,
         child: Row(
           children: [
@@ -90,49 +91,64 @@ class _HomeFocusCardState extends State<HomeFocusCard> {
                   child: InkWell(
                     onTap: open,
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 9, 4, 9),
-                      child: Row(
+                      padding: const EdgeInsets.fromLTRB(12, 7, 4, 7),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(
-                            Icons.timer_outlined,
-                            size: 18,
-                            color: !session.paused && !rest
-                                ? AppColors.focus
-                                : AppColors.muted,
-                          ),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
+                                Icon(
+                                  Icons.timer_outlined,
+                                  size: 12,
+                                  color: focusing
+                                      ? AppColors.focus
+                                      : AppColors.muted,
+                                ),
+                                const SizedBox(width: 4),
                                 Text(
-                                  session.taskTitle,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    color: AppColors.text,
-                                    fontSize: 13,
-                                    height: 1.15,
+                                  state,
+                                  style: TextStyle(
+                                    color: focusing
+                                        ? AppColors.focus
+                                        : AppColors.muted,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w600,
+                                    height: 1,
                                   ),
                                 ),
-                                const SizedBox(height: 3),
-                                FittedBox(
-                                  fit: BoxFit.scaleDown,
-                                  alignment: Alignment.centerLeft,
-                                  child: Text(
-                                    timer,
-                                    style: const TextStyle(
-                                      color: AppColors.muted,
-                                      fontSize: 12,
-                                      height: 1,
-                                      fontFeatures: [
-                                        FontFeature.tabularFigures(),
-                                      ],
-                                    ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  timer,
+                                  style: TextStyle(
+                                    color: session.paused
+                                        ? AppColors.muted
+                                        : AppColors.text,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w600,
+                                    letterSpacing: -.4,
+                                    height: 1,
+                                    fontFeatures: const [
+                                      FontFeature.tabularFigures(),
+                                    ],
                                   ),
                                 ),
                               ],
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            session.taskTitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: AppColors.muted,
+                              fontSize: 12,
+                              height: 1.1,
                             ),
                           ),
                         ],
@@ -143,14 +159,14 @@ class _HomeFocusCardState extends State<HomeFocusCard> {
               ),
             ),
             Padding(
-              padding: const EdgeInsets.only(right: 8),
+              padding: const EdgeInsets.only(right: 6),
               child: IconButton(
                 key: const ValueKey('home-focus-toggle'),
                 tooltip: action,
                 onPressed: busy ? null : _toggle,
                 style: IconButton.styleFrom(
-                  minimumSize: const Size(36, 36),
-                  maximumSize: const Size(36, 36),
+                  minimumSize: const Size(40, 40),
+                  maximumSize: const Size(40, 40),
                   padding: EdgeInsets.zero,
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   backgroundColor: AppColors.overlay,

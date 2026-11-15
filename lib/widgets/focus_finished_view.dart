@@ -128,13 +128,13 @@ class FocusFinishedView extends StatelessWidget {
     );
   }
 
-  Widget _secondaryButton({required bool rest, required bool largeText}) =>
+  Widget _nextRoundButton({required bool rest, required bool largeText}) =>
       FilledButton.tonal(
         key: ValueKey(rest ? 'focus-finished-rest' : 'focus-finished-continue'),
         onPressed: busy ? null : (rest ? onRest : onContinue),
         style: FilledButton.styleFrom(
-          backgroundColor: AppColors.surface,
-          foregroundColor: AppColors.text,
+          backgroundColor: rest ? AppColors.surface : AppColors.primary,
+          foregroundColor: rest ? AppColors.text : AppColors.onPrimary,
           disabledBackgroundColor: AppColors.surface,
           disabledForegroundColor: AppColors.faint,
           minimumSize: Size.zero,
@@ -144,9 +144,11 @@ class FocusFinishedView extends StatelessWidget {
           ),
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
           shape: const StadiumBorder(),
-          textStyle: const TextStyle(
+          side: rest ? const BorderSide(color: AppColors.outline) : null,
+          textStyle: TextStyle(
             fontFamily: 'Roboto',
-            fontSize: 12,
+            fontSize: rest ? 12 : 14,
+            fontWeight: rest ? FontWeight.w500 : FontWeight.w600,
             height: 1,
           ),
         ),
@@ -157,8 +159,8 @@ class FocusFinishedView extends StatelessWidget {
     key: const ValueKey('focus-finished-change-task'),
     onPressed: busy ? null : onChangeTask,
     style: FilledButton.styleFrom(
-      backgroundColor: AppColors.primary,
-      foregroundColor: AppColors.background,
+      backgroundColor: AppColors.surface,
+      foregroundColor: AppColors.text,
       disabledBackgroundColor: AppColors.overlay,
       disabledForegroundColor: AppColors.faint,
       minimumSize: Size.zero,
@@ -168,10 +170,11 @@ class FocusFinishedView extends StatelessWidget {
       ),
       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
       shape: const StadiumBorder(),
+      side: const BorderSide(color: AppColors.outline),
       textStyle: const TextStyle(
         fontFamily: 'Roboto',
-        fontSize: 14,
-        fontWeight: FontWeight.w600,
+        fontSize: 12,
+        fontWeight: FontWeight.w500,
         height: 1.1,
       ),
     ),
@@ -203,10 +206,10 @@ class FocusFinishedView extends StatelessWidget {
                 const SizedBox(height: 6),
                 centered(_minutes()),
                 const SizedBox(height: 12),
-                centered(_secondaryButton(rest: false, largeText: true)),
+                centered(_nextRoundButton(rest: false, largeText: true)),
                 if (canRest) ...[
                   const SizedBox(height: 8),
-                  centered(_secondaryButton(rest: true, largeText: true)),
+                  centered(_nextRoundButton(rest: true, largeText: true)),
                 ],
                 const SizedBox(height: 10),
                 centered(_changeTask(largeText: true)),
@@ -251,21 +254,16 @@ class FocusFinishedView extends StatelessWidget {
                         mainAxisAlignment: MainAxisAlignment.center,
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          Expanded(
-                            child: _secondaryButton(
-                              rest: false,
-                              largeText: false,
-                            ),
-                          ),
                           if (canRest) ...[
-                            SizedBox(width: 6 * scale),
                             Expanded(
-                              child: _secondaryButton(
+                              child: _nextRoundButton(
                                 rest: true,
                                 largeText: false,
                               ),
                             ),
+                            SizedBox(width: 6 * scale),
                           ],
+                          Expanded(child: _changeTask(largeText: false)),
                         ],
                       ),
                     ),
@@ -273,7 +271,7 @@ class FocusFinishedView extends StatelessWidget {
                     SizedBox(
                       width: side * .60,
                       height: 34 * scale,
-                      child: _changeTask(largeText: false),
+                      child: _nextRoundButton(rest: false, largeText: false),
                     ),
                   ],
                 ),

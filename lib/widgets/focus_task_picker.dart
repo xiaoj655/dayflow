@@ -4,6 +4,7 @@ import '../app_colors.dart';
 import '../controllers/app_controller.dart';
 import '../models/task.dart';
 import 'screen_viewport.dart';
+import 'wear_controls.dart';
 
 /// Browses both spaces without changing the task list's selected space.
 class FocusTaskPicker extends StatefulWidget {
@@ -66,44 +67,10 @@ class _FocusTaskPickerState extends State<FocusTaskPicker> {
     );
   }
 
-  Widget _spaces() => Center(
-    child: Container(
-      padding: const EdgeInsets.all(3),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(30),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (final entry in {'life': '生活', 'work': '工作'}.entries)
-            Semantics(
-              selected: space == entry.key,
-              child: TextButton(
-                key: ValueKey('focus-picker-space-${entry.key}'),
-                style: TextButton.styleFrom(
-                  minimumSize: const Size(56, 30),
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  backgroundColor: space == entry.key
-                      ? AppColors.overlay
-                      : Colors.transparent,
-                  foregroundColor: space == entry.key
-                      ? AppColors.text
-                      : AppColors.muted,
-                  shape: const StadiumBorder(),
-                  textStyle: const TextStyle(
-                    fontFamily: 'Roboto',
-                    fontSize: 12,
-                  ),
-                ),
-                onPressed: () => setState(() => space = entry.key),
-                child: Text(entry.value),
-              ),
-            ),
-        ],
-      ),
-    ),
+  Widget _spaces() => WearSpaceSelector(
+    space: space,
+    keyPrefix: 'focus-picker-space',
+    onSelected: (value) => setState(() => space = value),
   );
 
   Widget _label(String text) => Padding(
@@ -125,11 +92,15 @@ class _FocusTaskPickerState extends State<FocusTaskPicker> {
       child: Semantics(
         selected: selected,
         child: Material(
-          color: task.completed ? AppColors.background : AppColors.surface,
+          color: task.completed
+              ? AppColors.background
+              : selected
+              ? AppColors.surfaceRaised
+              : AppColors.surface,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(28),
             side: BorderSide(
-              color: selected ? AppColors.muted : AppColors.surface,
+              color: selected ? AppColors.muted : Colors.transparent,
             ),
           ),
           clipBehavior: Clip.antiAlias,

@@ -149,9 +149,11 @@ void main() {
         'rest',
         'change-task',
       ]);
-      final primary = tester.widget<FilledButton>(_control('change-task'));
+      final primary = tester.widget<FilledButton>(_control('continue'));
       expect(primary.style!.backgroundColor!.resolve({}), AppColors.primary);
-      expect(primary.style!.foregroundColor!.resolve({}), AppColors.background);
+      expect(primary.style!.foregroundColor!.resolve({}), AppColors.onPrimary);
+      final changeTask = tester.widget<FilledButton>(_control('change-task'));
+      expect(changeTask.style!.backgroundColor!.resolve({}), AppColors.surface);
       expect(tester.takeException(), isNull);
     });
   }
@@ -267,7 +269,7 @@ void main() {
 
   testWidgets('Phone layout stays centered without overflow', (tester) async {
     await _pumpFinished(tester, isRound: false, onRest: _noop);
-    final primary = tester.getCenter(_control('change-task'));
+    final primary = tester.getCenter(_control('continue'));
     expect(primary.dx, closeTo(195, .01));
     expect(_control('return').hitTestable(), findsOneWidget);
     expect(_control('change-task').hitTestable(), findsOneWidget);

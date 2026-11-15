@@ -43,6 +43,7 @@ class ActiveFocusControls extends StatelessWidget {
               foregroundColor: AppColors.muted,
               disabledBackgroundColor: AppColors.surface,
               disabledForegroundColor: AppColors.faint,
+              side: const BorderSide(color: AppColors.outline),
             ),
             icon: const Icon(Icons.stop_rounded, size: 20),
           ),
@@ -61,7 +62,7 @@ class ActiveFocusControls extends StatelessWidget {
                       ? AppColors.primary
                       : AppColors.overlay,
                   foregroundColor: primary
-                      ? AppColors.background
+                      ? AppColors.onPrimary
                       : AppColors.text,
                   disabledBackgroundColor: AppColors.overlay,
                   disabledForegroundColor: AppColors.faint,
@@ -80,7 +81,11 @@ class ActiveFocusControls extends StatelessWidget {
                         fit: BoxFit.scaleDown,
                         child: Text(
                           label,
-                          style: const TextStyle(fontSize: 13, height: 1),
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            height: 1,
+                          ),
                         ),
                       ),
                     ),

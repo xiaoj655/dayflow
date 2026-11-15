@@ -338,42 +338,9 @@ class _TaskListPageState extends State<TaskListPage> {
             'daily-tasks-${controller.space}-${controller.date}',
           ),
           children: [
-            Center(
-              child: Container(
-                padding: const EdgeInsets.all(3),
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(30),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    for (final entry in {'life': '生活', 'work': '工作'}.entries)
-                      Semantics(
-                        selected: controller.space == entry.key,
-                        child: TextButton(
-                          style: TextButton.styleFrom(
-                            minimumSize: const Size(60, 30),
-                            padding: const EdgeInsets.symmetric(horizontal: 14),
-                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                            backgroundColor: controller.space == entry.key
-                                ? AppColors.overlay
-                                : Colors.transparent,
-                            foregroundColor: controller.space == entry.key
-                                ? AppColors.text
-                                : muted,
-                            shape: const StadiumBorder(),
-                          ),
-                          onPressed: () => controller.selectSpace(entry.key),
-                          child: Text(
-                            entry.value,
-                            style: const TextStyle(fontSize: 12),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
+            WearSpaceSelector(
+              space: controller.space,
+              onSelected: controller.selectSpace,
             ),
             const SizedBox(height: 2),
             _TaskProgressCard(
@@ -674,10 +641,10 @@ class _TaskProgressCard extends StatelessWidget {
         : '${date.month}月${date.day}日';
     return Container(
       key: const ValueKey('task-progress-card'),
-      padding: const EdgeInsets.fromLTRB(12, 4, 8, 4),
+      padding: const EdgeInsets.fromLTRB(12, 2, 10, 4),
       decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(26),
+        color: AppColors.surfaceRaised,
+        borderRadius: BorderRadius.circular(22),
       ),
       child: Column(
         children: [
@@ -693,7 +660,10 @@ class _TaskProgressCard extends StatelessWidget {
                             title,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 12),
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                           Text(
                             workWeekLabel(controller.today).substring(3),
@@ -724,6 +694,7 @@ class _TaskProgressCard extends StatelessWidget {
                                 style: const TextStyle(
                                   color: AppColors.text,
                                   fontSize: 12,
+                                  fontWeight: FontWeight.w600,
                                 ),
                               ),
                             ),
@@ -764,7 +735,7 @@ class _TaskProgressCard extends StatelessWidget {
                                     text: '$completed',
                                     style: const TextStyle(
                                       color: AppColors.taskProgress,
-                                      fontSize: 24,
+                                      fontSize: 22,
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),
@@ -777,7 +748,10 @@ class _TaskProgressCard extends StatelessWidget {
                                   ),
                                 ],
                               ),
-                              style: const TextStyle(height: 1),
+                              style: const TextStyle(
+                                height: 1,
+                                fontFeatures: [FontFeature.tabularFigures()],
+                              ),
                             ),
                     ),
                   ),
@@ -815,7 +789,7 @@ class _TaskProgressCard extends StatelessWidget {
                 value: progress,
                 minHeight: 5,
                 color: AppColors.taskProgress,
-                backgroundColor: AppColors.overlay,
+                backgroundColor: AppColors.track,
                 semanticsLabel: '任务完成进度',
               ),
             ),
@@ -896,11 +870,15 @@ class TaskTile extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Material(
-        color: task.completed ? AppColors.background : surface,
+        color: task.completed
+            ? AppColors.background
+            : focusActive
+            ? AppColors.surfaceRaised
+            : surface,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(28),
-          side: task.completed
-              ? const BorderSide(color: AppColors.surface)
+          side: task.completed || focusActive
+              ? const BorderSide(color: AppColors.outline)
               : BorderSide.none,
         ),
         clipBehavior: Clip.antiAlias,
@@ -922,8 +900,8 @@ class TaskTile extends StatelessWidget {
                   task.completed
                       ? Icons.check_circle_rounded
                       : Icons.radio_button_unchecked_rounded,
-                  color: task.completed ? muted : AppColors.faint,
-                  size: 24,
+                  color: AppColors.muted,
+                  size: 22,
                 ),
               ),
             Expanded(
@@ -953,7 +931,7 @@ class TaskTile extends StatelessWidget {
                             color: task.completed ? muted : AppColors.text,
                           ),
                         ),
-                        const SizedBox(height: 4),
+                        const SizedBox(height: 3),
                         Row(
                           children: [
                             Semantics(
@@ -973,6 +951,9 @@ class TaskTile extends StatelessWidget {
                                       style: const TextStyle(
                                         fontSize: 12,
                                         color: muted,
+                                        fontFeatures: [
+                                          FontFeature.tabularFigures(),
+                                        ],
                                       ),
                                     ),
                                   ],
@@ -1016,7 +997,9 @@ class TaskTile extends StatelessWidget {
                   style: IconButton.styleFrom(
                     minimumSize: const Size(40, 40),
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    backgroundColor: AppColors.overlay,
+                    backgroundColor: focusActive
+                        ? AppColors.outline
+                        : AppColors.overlay,
                     foregroundColor: AppColors.text,
                   ),
                   onPressed: onFocus,
@@ -1081,13 +1064,22 @@ Future<void> showFocusTaskBrief(
 
 Widget taskInformation(String label, String? value) {
   if (value?.trim().isNotEmpty != true) return const SizedBox.shrink();
-  return Padding(
-    padding: const EdgeInsets.fromLTRB(8, 0, 8, 18),
+  return Container(
+    margin: const EdgeInsets.only(bottom: 8),
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: label == '启动动作' ? AppColors.surfaceRaised : AppColors.surface,
+      borderRadius: BorderRadius.circular(18),
+      border: label == '启动动作' ? Border.all(color: AppColors.outline) : null,
+    ),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (label.isNotEmpty) ...[
-          Text(label, style: const TextStyle(color: muted, fontSize: 12)),
+          Text(
+            label,
+            style: const TextStyle(color: muted, fontSize: 11, height: 1.2),
+          ),
           const SizedBox(height: 6),
         ],
         Text(value!, style: const TextStyle(fontSize: 15, height: 1.45)),
@@ -1511,8 +1503,9 @@ class _FocusSetupPageState extends State<FocusSetupPage> {
             child: Container(
               height: 40,
               decoration: BoxDecoration(
-                color: AppColors.overlay,
+                color: AppColors.surfaceRaised,
                 borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: AppColors.outline),
               ),
             ),
           ),
@@ -1522,6 +1515,7 @@ class _FocusSetupPageState extends State<FocusSetupPage> {
               controller: wheel,
               itemExtent: 40,
               diameterRatio: 2.2,
+              overAndUnderCenterOpacity: .26,
               physics: const FixedExtentScrollPhysics(),
               onSelectedItemChanged: (index) {
                 if (minutes != (index + 1) * 5) {
@@ -1542,7 +1536,7 @@ class _FocusSetupPageState extends State<FocusSetupPage> {
                       leadingDistribution: TextLeadingDistribution.even,
                       fontFeatures: [FontFeature.tabularFigures()],
                       color: AppColors.text,
-                      fontWeight: FontWeight.w500,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),
@@ -1903,7 +1897,12 @@ class _FocusPageState extends State<FocusPage> {
             ? '休息中'
             : '专注中',
         key: const ValueKey('active-focus-status'),
-        style: TextStyle(color: focusColor, fontSize: 12, height: 1),
+        style: TextStyle(
+          color: focusColor,
+          fontSize: 12,
+          height: 1,
+          fontWeight: FontWeight.w600,
+        ),
       );
       final status = Row(
         mainAxisSize: MainAxisSize.min,
@@ -2039,7 +2038,7 @@ class _FocusPageState extends State<FocusPage> {
                                   side *
                                   (side < 240 ? (hasSteps ? .15 : .18) : .20),
                               height: 1,
-                              fontWeight: FontWeight.w500,
+                              fontWeight: FontWeight.w600,
                               fontFeatures: const [
                                 FontFeature.tabularFigures(),
                               ],
@@ -2107,13 +2106,13 @@ class _TimerRing extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final rect = Rect.fromCircle(
       center: size.center(Offset.zero),
-      // Align the outer edge of the 3 dp stroke with the display edge.
-      radius: size.shortestSide / 2 - 1.5,
+      // Align the outer edge of the 4 dp stroke with the display edge.
+      radius: size.shortestSide / 2 - 2,
     );
     final paint = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 3
-      ..color = surface;
+      ..strokeWidth = 4
+      ..color = AppColors.track;
     canvas.drawArc(rect, 0, math.pi * 2, false, paint);
     paint
       ..color = color
