@@ -105,9 +105,9 @@ class MySqlTaskRepository implements TaskRepository {
         await connection.execute(
           '''INSERT IGNORE INTO la_task_days
       (id, template_id, task_date, title, content, tutorial,
-       task_value, minimum_goal, completion_standard, start_action, estimated_minutes, sort_order, space)
+       task_value, minimum_goal, completion_standard, start_action, estimated_minutes, sort_order, space, steps)
       SELECT CONCAT(id, ':', :date), id, :date, title, content, tutorial,
-        task_value, minimum_goal, completion_standard, start_action, estimated_minutes, sort_order, space
+        task_value, minimum_goal, completion_standard, start_action, estimated_minutes, sort_order, space, steps
       FROM la_task_templates WHERE space = 'life' AND active = TRUE AND start_date <= :date
       AND ((recurrence = 'once' AND start_date = :date) OR recurrence = 'daily'
         OR (recurrence = 'weekly' AND FIND_IN_SET(:weekday, weekdays) > 0))''',
@@ -116,10 +116,10 @@ class MySqlTaskRepository implements TaskRepository {
         await connection.execute(
           """INSERT IGNORE INTO la_task_days
       (id, template_id, task_date, title, content, tutorial, task_value, minimum_goal,
-       completion_standard, start_action, estimated_minutes, sort_order, space)
+       completion_standard, start_action, estimated_minutes, sort_order, space, steps)
       SELECT CONCAT(t.id, ':', t.start_date), t.id, t.start_date, t.title, t.content,
        t.tutorial, t.task_value, t.minimum_goal, t.completion_standard, t.start_action,
-       t.estimated_minutes, t.sort_order, t.space
+       t.estimated_minutes, t.sort_order, t.space, t.steps
       FROM la_task_templates t WHERE t.space = 'work' AND t.active = TRUE
        AND t.start_date <= :today
        AND NOT EXISTS (SELECT 1 FROM la_task_days d WHERE d.template_id = t.id AND d.space = 'work')""",
@@ -175,10 +175,10 @@ class MySqlTaskRepository implements TaskRepository {
       await transaction.execute(
         '''INSERT INTO la_task_days
           (id, template_id, task_date, carried_from_date, title, content, tutorial,
-           task_value, minimum_goal, completion_standard, start_action, estimated_minutes, sort_order, space)
+           task_value, minimum_goal, completion_standard, start_action, estimated_minutes, sort_order, space, steps, step_progress)
         SELECT CONCAT(template_id, ':', :today), template_id, :today, task_date,
           title, content, tutorial, task_value, minimum_goal, completion_standard,
-          start_action, estimated_minutes, sort_order, space
+          start_action, estimated_minutes, sort_order, space, steps, step_progress
         FROM la_task_days AS source_task WHERE id = :id
         ON DUPLICATE KEY UPDATE carried_from_date = IF(la_task_days.completed_at IS NULL,
           COALESCE(la_task_days.carried_from_date, VALUES(carried_from_date)), la_task_days.carried_from_date)''',
@@ -204,6 +204,33 @@ class MySqlTaskRepository implements TaskRepository {
         updated_at = UTC_TIMESTAMP(3) WHERE id = :id''',
           {'completed': completedAt, 'id': id},
         );
+      });
+
+  @override
+  Future<void> setStepCompleted(String taskId, String stepId, bool completed) =>
+      _connection((connection) async {
+        await connection.transactional((transaction) async {
+          final result = await transaction.execute(
+            'SELECT steps, step_progress FROM la_task_days WHERE id = :id FOR UPDATE',
+            {'id': taskId},
+          );
+          if (result.rows.isEmpty) return;
+          final row = result.rows.first.assoc();
+          final steps = taskStepsFromJson(row['steps'], row['step_progress']);
+          // A queued change for a step removed by Hermes must not recreate it.
+          if (!steps.any((step) => step.id == stepId)) return;
+          await transaction.execute(
+            '''UPDATE la_task_days SET step_progress = :progress,
+          updated_at = UTC_TIMESTAMP(3) WHERE id = :id''',
+            {
+              'id': taskId,
+              'progress': jsonEncode({
+                for (final step in steps)
+                  step.id: step.id == stepId ? completed : step.completed,
+              }),
+            },
+          );
+        });
       });
 
   @override

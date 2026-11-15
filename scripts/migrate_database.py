@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply the additive task-detail migration using the project's pinned TLS config."""
+"""Apply additive task, workspace, and step migrations using the project's pinned TLS config."""
 import importlib.util
 from pathlib import Path
 

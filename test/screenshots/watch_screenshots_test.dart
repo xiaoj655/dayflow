@@ -305,6 +305,36 @@ void main() {
         await capture('rest-finished');
         await back();
         await controller.focusAction('dismiss');
+
+        final stepsTask = screenshotStepsTask(controller.date);
+        repository.days[controller.date]!.add(stepsTask);
+        await controller.refresh();
+        await open(
+          TaskDetailPage(
+            controller: controller,
+            task: stepsTask,
+            isRound: true,
+          ),
+        );
+        await tester.scrollUntilVisible(
+          find.byKey(const ValueKey('task-step-gather')),
+          60,
+          scrollable: find.byType(Scrollable).last,
+        );
+        await capture('task-steps');
+        await back();
+        await controller.start(stepsTask, 25);
+        await open(FocusPage(controller: controller, isRound: true));
+        final sessionId = controller.focus!.id;
+        await tester.tap(find.byKey(const ValueKey('task-step-toggle-gather')));
+        await tester.pumpAndSettle();
+        expect(controller.focus!.id, sessionId);
+        expect(controller.focus!.active, isTrue);
+        expect(find.text('整理文档要点'), findsOneWidget);
+        await capture('focus-task-steps');
+        await back();
+        await controller.focusAction('dismiss');
+
         repository.days[controller.date] = [];
         await controller.refresh();
         expect(controller.visibleTasks, isEmpty);

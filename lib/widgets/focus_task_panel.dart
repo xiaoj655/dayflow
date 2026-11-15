@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 
 import '../app_colors.dart';
 import '../models/task.dart';
+import 'task_steps.dart';
 
 /// Inline task details shown on the active focus page without navigation.
 class FocusTaskPanel extends StatelessWidget {
-  const FocusTaskPanel({super.key, required this.task});
+  const FocusTaskPanel({super.key, required this.task, this.onStepChanged});
 
   final DailyTask task;
+  final StepChange? onStepChanged;
 
   bool _hasText(String? value) => value?.trim().isNotEmpty == true;
 
@@ -28,9 +30,7 @@ class FocusTaskPanel extends StatelessWidget {
           const SizedBox(height: 3),
           Text(
             value,
-            key: keySuffix == null
-                ? null
-                : ValueKey('focus-panel-$keySuffix'),
+            key: keySuffix == null ? null : ValueKey('focus-panel-$keySuffix'),
             style: const TextStyle(
               color: AppColors.text,
               fontSize: 12,
@@ -44,6 +44,9 @@ class FocusTaskPanel extends StatelessWidget {
 
   List<Widget> _sections() {
     final sections = <Widget>[];
+    if (task.steps.isNotEmpty) {
+      sections.add(TaskSteps(task: task, onChanged: onStepChanged));
+    }
     if (_hasText(task.startAction)) {
       sections.add(
         _section('启动动作', task.startAction!, keySuffix: 'start-action'),
@@ -64,9 +67,7 @@ class FocusTaskPanel extends StatelessWidget {
       );
     }
     if (_hasText(task.taskValue)) {
-      sections.add(
-        _section('任务价值', task.taskValue!, keySuffix: 'task-value'),
-      );
+      sections.add(_section('任务价值', task.taskValue!, keySuffix: 'task-value'));
     }
     if (_hasText(task.content)) {
       sections.add(_section('任务内容', task.content, keySuffix: 'content'));

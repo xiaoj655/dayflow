@@ -5,6 +5,7 @@ abstract class TaskRepository {
   Future<void> addToToday(DailyTask task, String today);
   Future<void> setWaiting(String id, bool waiting);
   Future<void> setCompleted(String id, String? completedAt, String changedAt);
+  Future<void> setStepCompleted(String taskId, String stepId, bool completed);
   Future<void> saveTask(TaskDraft draft, {DailyTask? existing});
   Future<void> archiveTask(DailyTask task);
   Future<void> saveSession(Map<String, dynamic> session);

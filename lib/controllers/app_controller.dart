@@ -67,6 +67,8 @@ class AppController extends ChangeNotifier {
   final Map<String, Map<String, dynamic>> _historyCache = {};
   final Map<String, dynamic> _pendingCompletion = {};
   final Map<String, dynamic> _pendingWaiting = {};
+  final Map<String, Map<String, dynamic>> _pendingSteps = {};
+  int _stepRevision = 0;
   final Map<String, Map<String, dynamic>> _pendingSessions = {};
   Future<void> _writes = Future.value();
   Future<void>? _refreshing, _focusReading, _cacheReading, _initializing;
@@ -186,6 +188,18 @@ class AppController extends ChangeNotifier {
     _restoreEntries(data['waiting'], (key, value) {
       if (value is bool) _pendingWaiting[key] = value;
     });
+    _restoreEntries(data['steps'], (key, value) {
+      if (value is! Map<String, dynamic> ||
+          value['taskId'] is! String ||
+          (value['taskId'] as String).isEmpty ||
+          value['stepId'] is! String ||
+          (value['stepId'] as String).isEmpty ||
+          value['completed'] is! bool) {
+        return;
+      }
+      final expectedKey = jsonEncode([value['taskId'], value['stepId']]);
+      if (key == expectedKey) _pendingSteps[key] = value;
+    });
     final damagedSessions = <String>{};
     _restoreEntries(data['sessions'], (key, value) {
       if (value is! Map<String, dynamic> ||
@@ -260,17 +274,41 @@ class AppController extends ChangeNotifier {
     _notify();
   }
 
-  void _applyPending() {
-    tasks = tasks.map((task) {
-      if (_pendingWaiting.containsKey(task.id)) {
-        task = task.withWaiting(_pendingWaiting[task.id] == true);
+  DailyTask? taskById(String id) {
+    for (final task in tasks) {
+      if (task.id == id) return _withPending(task);
+    }
+    for (final rows in _cache.values) {
+      for (final row in rows as List) {
+        if ((row as Map)['id'] == id) {
+          return _withPending(
+            DailyTask.fromJson(Map<String, dynamic>.from(row)),
+          );
+        }
       }
-      final change = _pendingCompletion[task.id] as Map?;
-      return change == null
-          ? task
-          : task.withCompletion(change['completedAt'] as String?);
-    }).toList();
+    }
+    return null;
   }
+
+  DailyTask _withPending(DailyTask task) {
+    if (_pendingWaiting.containsKey(task.id)) {
+      task = task.withWaiting(_pendingWaiting[task.id] == true);
+    }
+    for (final change in _pendingSteps.values) {
+      if (change['taskId'] == task.id) {
+        task = task.withStepCompletion(
+          change['stepId'] as String,
+          change['completed'] as bool,
+        );
+      }
+    }
+    final change = _pendingCompletion[task.id] as Map?;
+    return change == null
+        ? task
+        : task.withCompletion(change['completedAt'] as String?);
+  }
+
+  void _applyPending() => tasks = tasks.map(_withPending).toList();
 
   void _notify() {
     if (!_closed) notifyListeners();
@@ -289,6 +327,7 @@ class AppController extends ChangeNotifier {
       'days': _cache,
       'completion': _pendingCompletion,
       'waiting': _pendingWaiting,
+      'steps': _pendingSteps,
       'sessions': _pendingSessions,
     });
     _writes = _writes
@@ -311,6 +350,12 @@ class AppController extends ChangeNotifier {
       throw const FormatException('只能将其他日期未完成的任务加入今天');
     }
     if (_refreshing != null) await _refreshing;
+    if (_pendingSteps.values.any((change) => change['taskId'] == task.id)) {
+      await refresh();
+      if (_pendingSteps.values.any((change) => change['taskId'] == task.id)) {
+        throw const FormatException('步骤进度尚未同步，请联网后再加入今天');
+      }
+    }
     await repository.addToToday(task, target);
     await refresh();
   }
@@ -331,12 +376,18 @@ class AppController extends ChangeNotifier {
       if (!_cacheReady) await _ensureCache();
       if (_needsNativeReplay) await refreshFocus();
       String requested;
+      int stepRevision;
       do {
         requested = date;
+        stepRevision = _stepRevision;
         await _refreshDay(requested);
         // Skip intermediate selections; an old response must never replace the
         // currently selected day's tasks. Keep one database request at a time.
-      } while (!_closed && requested != date);
+      } while (!_closed &&
+          (requested != date ||
+              (!offline &&
+                  _pendingSteps.isNotEmpty &&
+                  stepRevision != _stepRevision)));
       done.complete();
     } catch (error, stack) {
       if (!_cacheReady) offline = true;
@@ -376,6 +427,20 @@ class AppController extends ChangeNotifier {
         await repository.setWaiting(entry.key, entry.value == true);
         if (_pendingWaiting[entry.key] == entry.value) {
           _pendingWaiting.remove(entry.key);
+        }
+      }
+      for (final entry in Map<String, Map<String, dynamic>>.from(
+        _pendingSteps,
+      ).entries) {
+        final change = entry.value;
+        await repository.setStepCompleted(
+          change['taskId'] as String,
+          change['stepId'] as String,
+          change['completed'] as bool,
+        );
+        // A new tap can replace this exact step while its upload is in flight.
+        if (identical(_pendingSteps[entry.key], change)) {
+          _pendingSteps.remove(entry.key);
         }
       }
       final rows = await repository.fetchDay(requested);
@@ -433,6 +498,44 @@ class AppController extends ChangeNotifier {
     tasks = tasks
         .map((t) => t.id == task.id ? t.withWaiting(!task.waiting) : t)
         .toList();
+    _notify();
+    await _persist();
+    unawaited(refresh());
+  }
+
+  Future<void> setStepCompleted(
+    DailyTask task,
+    String stepId,
+    bool completed,
+  ) async {
+    if (!_cacheReady) await _ensureCache();
+    final current = taskById(task.id) ?? task;
+    if (!current.steps.any((step) => step.id == stepId)) return;
+    _pendingSteps[jsonEncode([task.id, stepId])] = {
+      'taskId': task.id,
+      'stepId': stepId,
+      'completed': completed,
+    };
+    _stepRevision++;
+    tasks = tasks
+        .map(
+          (item) => item.id == task.id
+              ? item.withStepCompletion(stepId, completed)
+              : item,
+        )
+        .toList();
+    // Work records appear in several cached dates; an old detail page can also
+    // update a life record after the home screen has moved to another date.
+    for (final key in _cache.keys.toList()) {
+      _cache[key] = (_cache[key] as List).map((cached) {
+        final row = Map<String, dynamic>.from(cached as Map);
+        return row['id'] == task.id
+            ? DailyTask.fromJson(row)
+                  .withStepCompletion(stepId, completed)
+                  .toJson()
+            : row;
+      }).toList();
+    }
     _notify();
     await _persist();
     unawaited(refresh());

@@ -7,6 +7,7 @@ Flutter 原生 Android 应用，由 Hermes 编排与填写任务，手表查看�
 - 首页默认今日任务，左滑下一天、右滑前一天，可连续快速查看明天、后天；日期入口保留日历选择。手表使用按周排列的日历，附近日期点选即打开，支持滑动和表冠浏览，手机使用日历选择。完成任务沉底；恢复待办回到原排列顺序。
 - 其他日期未完成的任务可手动“加入今天”，保留原日期记录与重复规则；今天已有同一任务时去重，不重置完成状态。Hermes skill 的 `carry --id` 支持同样操作。
 - 任务字段：标题、内容、可选技巧/教程，以及任务价值、最低目标、完成标准、启动动作、预估分钟数。支持单次、每天、指定星期重复；新增信息可留空，预估时长不覆盖番茄钟的记忆时长。
+- 复杂任务可让 Hermes 拆成少量执行步骤，手表详情和任务要点支持勾选、撤销；专注设置显示当前一步，计时中可直接勾选并接着做下一步，计时继续。步骤全部完成后，整项任务仍由你确认完成。进度离线保存后同步，工作跨日保留，生活重复任务每天独立；手动“加入今天”在新建记录时复制来源进度，今天已有记录则保留自己的进度。
 - 手表采用 Wear OS 圆屏设计与 Material 控件，完整圆屏布局、普通纵向滚动、表冠滚动（2.04 倍，带轻微触感）；触摸操作优先，左边缘跟手右滑返回；列表边缘轻微缩小淡出，顶部弧形时间随滚动隐藏。
 - 界面以黑白灰为主，主要操作按钮使用红色，选中项与运行中的专注圆环、状态少量用红色强调，分析时间轴局部用颜色区分记录。
 - 专注时长 5–180 分钟、每格 5 分钟，表冠与鼠标滚轮切换带平滑动画；记忆上次实际启动的时长。暂停、继续、提前结束；结束短震两次，不自动休息或完成任务。
@@ -40,40 +41,44 @@ Flutter 原生 Android 应用，由 Hermes 编排与填写任务，手表查看�
   <tr>
     <td align="center"><img src="docs/screenshots/calendar.png" width="200" height="200" alt="日期日历"><br>日期日历</td>
     <td align="center"><img src="docs/screenshots/task-detail.png" width="200" height="200" alt="任务详情"><br>任务详情</td>
-    <td align="center"><img src="docs/screenshots/task-editor.png" width="200" height="200" alt="任务编辑"><br>任务编辑</td>
+    <td align="center"><img src="docs/screenshots/task-steps.png" width="200" height="200" alt="任务步骤"><br>任务步骤</td>
   </tr>
   <tr>
+    <td align="center"><img src="docs/screenshots/task-editor.png" width="200" height="200" alt="任务编辑"><br>任务编辑</td>
     <td align="center"><img src="docs/screenshots/focus-setup.png" width="200" height="200" alt="关联任务专注"><br>关联任务专注</td>
     <td align="center"><img src="docs/screenshots/focus-task-brief.png" width="200" height="200" alt="专注任务要点"><br>专注任务要点</td>
-    <td align="center"><img src="docs/screenshots/focus-start-action.png" width="200" height="200" alt="完整启动动作"><br>完整启动动作</td>
   </tr>
   <tr>
+    <td align="center"><img src="docs/screenshots/focus-start-action.png" width="200" height="200" alt="完整启动动作"><br>完整启动动作</td>
     <td align="center"><img src="docs/screenshots/free-focus-setup.png" width="200" height="200" alt="自由专注设置"><br>自由专注设置</td>
     <td align="center"><img src="docs/screenshots/task-picker.png" width="200" height="200" alt="选择关联任务"><br>选择关联任务</td>
-    <td align="center"><img src="docs/screenshots/focus-running.png" width="200" height="200" alt="专注计时"><br>专注计时</td>
   </tr>
   <tr>
+    <td align="center"><img src="docs/screenshots/focus-running.png" width="200" height="200" alt="专注计时"><br>专注计时</td>
+    <td align="center"><img src="docs/screenshots/focus-task-steps.png" width="200" height="200" alt="专注推进步骤"><br>专注推进步骤</td>
     <td align="center"><img src="docs/screenshots/focus-paused.png" width="200" height="200" alt="专注暂停"><br>专注暂停</td>
+  </tr>
+  <tr>
     <td align="center"><img src="docs/screenshots/focus-finished.png" width="200" height="200" alt="专注结束"><br>专注结束</td>
     <td align="center"><img src="docs/screenshots/focus-interrupted.png" width="200" height="200" alt="提前结束"><br>提前结束</td>
+    <td align="center"><img src="docs/screenshots/focus-unrecorded.png" width="200" height="200" alt="短专注未记录"><br>短专注未记录</td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/screenshots/focus-unrecorded.png" width="200" height="200" alt="短专注未记录"><br>短专注未记录</td>
     <td align="center"><img src="docs/screenshots/rest-running.png" width="200" height="200" alt="休息计时"><br>休息计时</td>
     <td align="center"><img src="docs/screenshots/rest-finished.png" width="200" height="200" alt="休息结束"><br>休息结束</td>
+    <td align="center"><img src="docs/screenshots/analysis.png" width="200" height="200" alt="专注分析"><br>专注分析</td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/screenshots/analysis.png" width="200" height="200" alt="专注分析"><br>专注分析</td>
     <td align="center"><img src="docs/screenshots/analysis-empty.png" width="200" height="200" alt="空分析"><br>空分析</td>
     <td align="center"><img src="docs/screenshots/work-mode.png" width="200" height="200" alt="工作提醒已关闭"><br>工作提醒已关闭</td>
+    <td align="center"><img src="docs/screenshots/work-active.png" width="200" height="200" alt="工作提醒已开启"><br>工作提醒已开启</td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/screenshots/work-active.png" width="200" height="200" alt="工作提醒已开启"><br>工作提醒已开启</td>
     <td align="center"><img src="docs/screenshots/work-reminders.png" width="200" height="200" alt="休息提醒设置"><br>休息提醒设置</td>
     <td align="center"><img src="docs/screenshots/work-schedule.png" width="200" height="200" alt="提醒时段设置"><br>提醒时段设置</td>
+    <td align="center"><img src="docs/screenshots/reminder-interval.png" width="200" height="200" alt="提醒间隔"><br>提醒间隔</td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/screenshots/reminder-interval.png" width="200" height="200" alt="提醒间隔"><br>提醒间隔</td>
     <td align="center"><img src="docs/screenshots/work-end-time.png" width="200" height="200" alt="自动关闭时间"><br>自动关闭时间</td>
     <td align="center"><img src="docs/screenshots/work-history.png" width="200" height="200" alt="工作完成记录"><br>工作完成记录</td>
   </tr>

@@ -104,7 +104,7 @@ skills/dayflow/.venv/bin/python skills/dayflow/scripts/tasks.py list
 skills/dayflow/.venv/bin/python scripts/migrate_database.py
 ```
 
-只添加缺失的 v2/v3 字段，不覆盖历史记录。对应 SQL 位于 `database/migrations/`；结构源为 `database/schema.sql`，skill 的 `references/schema.sql` 应与它一致。
+只添加缺失的任务详情、空间、工作池及任务步骤字段，不覆盖历史记录。任务步骤升级对应 `006_task_steps.sql`：模板和任务快照保存可选步骤定义，任务快照独立保存勾选进度；发布新客户端前先完成迁移。对应 SQL 位于 `database/migrations/`；结构源为 `database/schema.sql`，skill 的 `references/schema.sql` 应与它一致。
 
 安排日期固定按 `Asia/Shanghai`，数据库时间戳用 UTC；目前没有时区设置。
 

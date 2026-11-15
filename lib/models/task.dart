@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math';
 
 String newId() {
@@ -15,6 +16,52 @@ String dayKey(DateTime date) =>
     '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
 String sqlTime(DateTime date) =>
     date.toUtc().toIso8601String().replaceFirst('T', ' ').replaceFirst('Z', '');
+
+class TaskStep {
+  const TaskStep({
+    required this.id,
+    required this.title,
+    this.completed = false,
+  });
+  final String id, title;
+  final bool completed;
+  TaskStep withCompletion(bool value) =>
+      TaskStep(id: id, title: title, completed: value);
+  Map<String, dynamic> toJson() => {'id': id, 'title': title};
+}
+
+dynamic _stepJson(dynamic value) {
+  if (value is! String) return value;
+  try {
+    return jsonDecode(value);
+  } on FormatException {
+    return null;
+  }
+}
+
+List<TaskStep> taskStepsFromJson(dynamic definitions, dynamic progress) {
+  final rows = _stepJson(definitions);
+  final state = _stepJson(progress);
+  if (rows is! List) return const [];
+  final result = <TaskStep>[];
+  final ids = <String>{};
+  for (final row in rows) {
+    if (row is! Map || row['id'] is! String || row['title'] is! String) {
+      continue;
+    }
+    final id = row['id'] as String;
+    final title = (row['title'] as String).trim();
+    if (id.isEmpty || title.isEmpty || !ids.add(id)) continue;
+    result.add(
+      TaskStep(
+        id: id,
+        title: title,
+        completed: state is Map && state[id] == true,
+      ),
+    );
+  }
+  return List.unmodifiable(result);
+}
 
 class DailyTask {
   const DailyTask({
@@ -38,6 +85,7 @@ class DailyTask {
     this.weekdays = const [],
     this.scheduleDate,
     this.focusCount = 0,
+    this.steps = const [],
   });
   final String id, templateId, date, title, content, recurrence;
   final String? tutorial, completedAt, scheduleDate, carriedFromDate;
@@ -48,6 +96,15 @@ class DailyTask {
   final bool waiting;
   final int sortOrder;
   final int focusCount;
+  final List<TaskStep> steps;
+  int get completedStepCount => steps.where((step) => step.completed).length;
+  TaskStep? get currentStep {
+    for (final step in steps) {
+      if (!step.completed) return step;
+    }
+    return null;
+  }
+
   bool get completed => completedAt != null;
   DailyTask withCompletion(String? value) => DailyTask(
     id: id,
@@ -70,7 +127,16 @@ class DailyTask {
     weekdays: weekdays,
     scheduleDate: scheduleDate,
     focusCount: focusCount,
+    steps: steps,
   );
+  DailyTask withStepCompletion(String stepId, bool value) =>
+      DailyTask.fromJson({
+        ...toJson(),
+        'step_progress': {
+          for (final step in steps)
+            step.id: step.id == stepId ? value : step.completed,
+        },
+      });
   DailyTask withWaiting(bool value) =>
       DailyTask.fromJson({...toJson(), 'waiting': value ? 1 : 0});
   Map<String, dynamic> toJson() => {
@@ -94,6 +160,8 @@ class DailyTask {
     'weekdays': weekdays.join(','),
     'schedule_start_date': scheduleDate,
     'focus_count': focusCount,
+    'steps': steps.map((step) => step.toJson()).toList(),
+    'step_progress': {for (final step in steps) step.id: step.completed},
   };
   factory DailyTask.fromJson(Map<String, dynamic> data) => DailyTask(
     id: data['id'] as String,
@@ -120,6 +188,7 @@ class DailyTask {
         .toList(),
     scheduleDate: data['schedule_start_date']?.toString().substring(0, 10),
     focusCount: int.tryParse('${data['focus_count'] ?? 0}') ?? 0,
+    steps: taskStepsFromJson(data['steps'], data['step_progress']),
   );
 }
 

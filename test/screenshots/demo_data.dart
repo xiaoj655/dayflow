@@ -2,6 +2,23 @@ import 'package:life_assistant/models/task.dart';
 
 import '../fakes.dart';
 
+/// Added only for the step-specific captures, keeping the other examples stable.
+DailyTask screenshotStepsTask(String date) => DailyTask(
+  id: 'steps:$date',
+  templateId: 'steps',
+  date: date,
+  title: '整理项目资料',
+  content: '整理本周项目资料，留下可继续推进的记录。',
+  startAction: '打开项目文件夹',
+  minimumGoal: '整理一份项目文档',
+  space: 'work',
+  steps: const [
+    TaskStep(id: 'gather', title: '收集项目资料'),
+    TaskStep(id: 'organize', title: '整理文档要点'),
+    TaskStep(id: 'next', title: '记录下一步'),
+  ],
+);
+
 /// Screenshot-only examples; never read or write a user's tasks.
 FakeRepository screenshotRepository(String date) {
   final repository = ScreenshotRepository();

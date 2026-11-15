@@ -3,13 +3,20 @@ import 'package:flutter/material.dart';
 import '../app_colors.dart';
 import '../models/task.dart';
 import 'screen_viewport.dart';
+import 'task_steps.dart';
 
 /// The task context remains available without leaving the current focus flow.
 class FocusTaskBrief extends StatefulWidget {
-  const FocusTaskBrief({super.key, required this.task, required this.isRound});
+  const FocusTaskBrief({
+    super.key,
+    required this.task,
+    required this.isRound,
+    this.onStepChanged,
+  });
 
   final DailyTask task;
   final bool isRound;
+  final StepChange? onStepChanged;
 
   @override
   State<FocusTaskBrief> createState() => _FocusTaskBriefState();
@@ -140,6 +147,8 @@ class _FocusTaskBriefState extends State<FocusTaskBrief> {
               ),
             ),
             const SizedBox(height: 20),
+            if (task.steps.isNotEmpty)
+              TaskSteps(task: task, onChanged: widget.onStepChanged),
             if (_hasText(task.startAction))
               _information('start-action', '启动动作', task.startAction!),
             if (_hasText(task.minimumGoal))

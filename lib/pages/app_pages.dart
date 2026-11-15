@@ -20,6 +20,7 @@ import '../widgets/focus_task_picker.dart';
 import '../widgets/home_focus_card.dart';
 import '../widgets/focus_task_brief.dart';
 import '../widgets/focus_task_panel.dart';
+import '../widgets/task_steps.dart';
 
 const accent = AppColors.primary;
 const surface = AppColors.surface;
@@ -1014,11 +1015,17 @@ Future<void> showFocusTaskBrief(
   context,
   appRoute<void>(
     context,
-    builder: (_) => FocusTaskBrief(
-      task:
-          controller.tasks.where((item) => item.id == task.id).firstOrNull ??
-          task,
-      isRound: isRound,
+    builder: (_) => AnimatedBuilder(
+      animation: controller,
+      builder: (_, _) {
+        final current = controller.taskById(task.id) ?? task;
+        return FocusTaskBrief(
+          task: current,
+          isRound: isRound,
+          onStepChanged: (step, completed) =>
+              controller.setStepCompleted(current, step.id, completed),
+        );
+      },
     ),
   ),
 );
@@ -1109,11 +1116,7 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: widget.controller,
     builder: (context, _) {
-      final task =
-          widget.controller.tasks
-              .where((task) => task.id == widget.task.id)
-              .firstOrNull ??
-          widget.task;
+      final task = widget.controller.taskById(widget.task.id) ?? widget.task;
       final hasActiveFocus = widget.controller.focus?.active == true;
       Widget focusButton(String position) => KeyedSubtree(
         key: ValueKey('detail-focus-$position'),
@@ -1177,6 +1180,12 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
             ),
           ],
           const SizedBox(height: 20),
+          if (task.steps.isNotEmpty)
+            TaskSteps(
+              task: task,
+              onChanged: (step, completed) =>
+                  widget.controller.setStepCompleted(task, step.id, completed),
+            ),
           taskInformation('启动动作', task.startAction),
           taskInformation('最低目标', task.minimumGoal),
           taskInformation('完成标准', task.completionStandard),
@@ -1337,7 +1346,13 @@ class _FocusSetupPageState extends State<FocusSetupPage> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: widget.controller,
+    builder: (context, _) => _buildSetup(context),
+  );
+
+  Widget _buildSetup(BuildContext context) {
+    task = widget.controller.taskById(task.id) ?? task;
     final taskHeading = Text(
       task.title,
       key: const ValueKey('focus-task-title'),
@@ -1501,7 +1516,19 @@ class _FocusSetupPageState extends State<FocusSetupPage> {
               child: Column(
                 children: [
                   SizedBox(height: 28, child: Center(child: choose)),
-                  if (hasAction)
+                  if (task.steps.isNotEmpty)
+                    CurrentTaskStep(
+                      task: task,
+                      onOpen: busy
+                          ? null
+                          : () => showFocusTaskBrief(
+                              context,
+                              widget.controller,
+                              task,
+                              isRound: widget.isRound,
+                            ),
+                    )
+                  else if (hasAction)
                     IgnorePointer(
                       ignoring: busy,
                       child: readableAction(
@@ -1618,9 +1645,7 @@ class _FocusPageState extends State<FocusPage> {
 
   DailyTask _task() {
     final focus = controller.focus!;
-    return controller.tasks
-            .where((task) => task.id == focus.taskId)
-            .firstOrNull ??
+    return controller.taskById(focus.taskId) ??
         DailyTask(
           space: focus.space,
           id: focus.taskId,
@@ -1734,7 +1759,9 @@ class _FocusPageState extends State<FocusPage> {
             onPressed: busy
                 ? null
                 : () => _run(() async {
-                    await _action(controller.focus!.paused ? 'resume' : 'pause');
+                    await _action(
+                      controller.focus!.paused ? 'resume' : 'pause',
+                    );
                   }),
             icon: Icon(
               controller.focus!.paused
@@ -1837,6 +1864,15 @@ class _FocusPageState extends State<FocusPage> {
       final task = focus.kind == 'focus' && focus.taskId.isNotEmpty
           ? _task()
           : null;
+      final hasSteps = task?.steps.isNotEmpty == true;
+      Widget currentStep() => CurrentTaskStep(
+        task: task!,
+        onOpen: () => setState(() => showTaskPanel = true),
+        onChanged: busy
+            ? null
+            : (step, completed) =>
+                  controller.setStepCompleted(task, step.id, completed),
+      );
       final focusColor = !focus.paused && focus.kind == 'focus'
           ? AppColors.focus
           : muted;
@@ -1867,12 +1903,19 @@ class _FocusPageState extends State<FocusPage> {
             ),
         ],
       );
-      if (MediaQuery.textScalerOf(context).scale(14) > 19) {
+      if (MediaQuery.textScalerOf(context).scale(14) > (hasSteps ? 16 : 19)) {
         return AppPage(
           isRound: isRound,
           children: [
             title,
-            if (hasAction)
+            if (hasSteps) currentStep(),
+            if (showTaskPanel && task != null)
+              FocusTaskPanel(
+                task: task,
+                onStepChanged: (step, completed) =>
+                    controller.setStepCompleted(task, step.id, completed),
+              ),
+            if (!hasSteps && hasAction)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 child: Text(
@@ -1909,101 +1952,120 @@ class _FocusPageState extends State<FocusPage> {
               return Center(
                 child: SizedBox.square(
                   dimension: side,
-                child: Stack(
-                  children: [
-                    Positioned.fill(
-                      child: IgnorePointer(
-                        child: CustomPaint(
-                          painter: _TimerRing(
-                            focus.remainingMillis /
-                                (focus.plannedSeconds * 1000),
-                            focusColor,
-                          ),
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      top: side * .12,
-                      left: side * .17,
-                      right: side * .17,
-                      child: title,
-                    ),
-                    if (hasAction)
-                      Positioned(
-                        top: side * .29,
-                        left: side * .18,
-                        right: side * .18,
-                        child: GestureDetector(
-                          behavior: HitTestBehavior.opaque,
-                          onTap: () => setState(() => showTaskPanel = true),
-                          child: Text(
-                            action!,
-                            key: const ValueKey('active-focus-start-action'),
-                            maxLines:
-                                MediaQuery.sizeOf(context).shortestSide < 220
-                                ? 1
-                                : 2,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              color: muted,
-                              fontSize: 12,
-                              height: 1.25,
-                            ),
-                          ),
-                        ),
-                      ),
-                    Positioned(
-                      top: side * (side < 220 ? .39 : .43),
-                      left: side * .12,
-                      right: side * .12,
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Text(
-                          timerText(focus.remainingSeconds),
-                          key: const ValueKey('active-focus-countdown'),
-                          style: TextStyle(
-                            fontSize: side * (side < 220 ? .18 : .20),
-                            height: 1,
-                            fontWeight: FontWeight.w500,
-                            fontFeatures: const [FontFeature.tabularFigures()],
-                            letterSpacing: -1,
-                          ),
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      top: side * (side < 220 ? .58 : .65),
-                      left: 0,
-                      right: 0,
-                      child: Center(child: status),
-                    ),
-                    Positioned(
-                      top: math.min(side * .73, side - 68),
-                      left: 0,
-                      right: 0,
-                      child: _controls(context),
-                    ),
-                    if (showTaskPanel)
+                  child: Stack(
+                    children: [
                       Positioned.fill(
-                        child: GestureDetector(
-                          behavior: HitTestBehavior.opaque,
-                          onTap: () => setState(() => showTaskPanel = false),
-                          child: ColoredBox(
-                            color: AppColors.background.withAlpha(235),
-                            child: Padding(
-                              padding: EdgeInsets.fromLTRB(
-                                side * .10,
-                                side * .16,
-                                side * .10,
-                                side * .16,
-                              ),
-                              child: FocusTaskPanel(task: task!),
+                        child: IgnorePointer(
+                          child: CustomPaint(
+                            painter: _TimerRing(
+                              focus.remainingMillis /
+                                  (focus.plannedSeconds * 1000),
+                              focusColor,
                             ),
                           ),
                         ),
                       ),
-                  ],
+                      Positioned(
+                        top: side * .12,
+                        left: side * .17,
+                        right: side * .17,
+                        child: title,
+                      ),
+                      if (hasSteps)
+                        Positioned(
+                          top: side * .27,
+                          left: side * .17,
+                          right: side * .17,
+                          child: currentStep(),
+                        )
+                      else if (hasAction)
+                        Positioned(
+                          top: side * .29,
+                          left: side * .18,
+                          right: side * .18,
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () => setState(() => showTaskPanel = true),
+                            child: Text(
+                              action!,
+                              key: const ValueKey('active-focus-start-action'),
+                              maxLines:
+                                  MediaQuery.sizeOf(context).shortestSide < 220
+                                  ? 1
+                                  : 2,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                color: muted,
+                                fontSize: 12,
+                                height: 1.25,
+                              ),
+                            ),
+                          ),
+                        ),
+                      Positioned(
+                        top: side * (side < 220 ? (hasSteps ? .44 : .39) : .43),
+                        left: side * .12,
+                        right: side * .12,
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            timerText(focus.remainingSeconds),
+                            key: const ValueKey('active-focus-countdown'),
+                            style: TextStyle(
+                              fontSize:
+                                  side *
+                                  (side < 220 ? (hasSteps ? .16 : .18) : .20),
+                              height: 1,
+                              fontWeight: FontWeight.w500,
+                              fontFeatures: const [
+                                FontFeature.tabularFigures(),
+                              ],
+                              letterSpacing: -1,
+                            ),
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        top: side * (side < 220 ? (hasSteps ? .62 : .58) : .65),
+                        left: 0,
+                        right: 0,
+                        child: Center(child: status),
+                      ),
+                      Positioned(
+                        top: math.min(side * .73, side - 68),
+                        left: 0,
+                        right: 0,
+                        child: _controls(context),
+                      ),
+                      if (showTaskPanel && task != null)
+                        Positioned.fill(
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () => setState(() => showTaskPanel = false),
+                            child: ColoredBox(
+                              color: AppColors.background.withAlpha(235),
+                              child: Padding(
+                                padding: EdgeInsets.fromLTRB(
+                                  side * .10,
+                                  side * .16,
+                                  side * .10,
+                                  side * .16,
+                                ),
+                                child: FocusTaskPanel(
+                                  task: task,
+                                  onStepChanged: (step, completed) =>
+                                      controller.setStepCompleted(
+                                        task,
+                                        step.id,
+                                        completed,
+                                      ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
               );

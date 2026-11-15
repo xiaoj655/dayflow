@@ -125,6 +125,24 @@ class FakeRepository implements TaskRepository {
   }
 
   @override
+  Future<void> setStepCompleted(
+    String taskId,
+    String stepId,
+    bool completed,
+  ) async {
+    _check();
+    for (final entry in days.entries.toList()) {
+      days[entry.key] = entry.value
+          .map(
+            (task) => task.id == taskId
+                ? task.withStepCompletion(stepId, completed)
+                : task,
+          )
+          .toList();
+    }
+  }
+
+  @override
   Future<void> saveTask(TaskDraft draft, {DailyTask? existing}) async {
     _check();
     draft.validate();
@@ -143,6 +161,7 @@ class FakeRepository implements TaskRepository {
       recurrence: draft.recurrence,
       weekdays: draft.weekdays,
       sortOrder: draft.sortOrder,
+      steps: existing?.steps ?? const [],
     );
     final list = days.putIfAbsent(draft.date, () => []);
     list.removeWhere((task) => task.id == existing?.id);

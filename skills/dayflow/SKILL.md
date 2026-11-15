@@ -19,12 +19,14 @@ python "${HERMES_SKILL_DIR}/scripts/tasks.py" put --input /path/to/task.json
 python "${HERMES_SKILL_DIR}/scripts/tasks.py" put --id TEMPLATE_UUID --input /path/to/changes.json
 python "${HERMES_SKILL_DIR}/scripts/tasks.py" complete --id 'TEMPLATE_UUID:2026-10-24'
 python "${HERMES_SKILL_DIR}/scripts/tasks.py" complete --id 'TEMPLATE_UUID:2026-10-24' --undo
+python "${HERMES_SKILL_DIR}/scripts/tasks.py" step --id 'TEMPLATE_UUID:2026-10-24' --step STEP_ID
+python "${HERMES_SKILL_DIR}/scripts/tasks.py" step --id 'TEMPLATE_UUID:2026-10-24' --step STEP_ID --undo
 python "${HERMES_SKILL_DIR}/scripts/tasks.py" carry --id 'TEMPLATE_UUID:2026-10-24'
 python "${HERMES_SKILL_DIR}/scripts/tasks.py" archive --id TEMPLATE_UUID
 python "${HERMES_SKILL_DIR}/scripts/tasks.py" history --limit 30
 ```
 
-`init` 用于准备或升级数据库；创建缺失的表，并幂等补充 v2 的五个任务详情字段与 v3 的跨日来源字段，不清空数据、不改写历史快照。现有表结构见 [references/schema.sql](references/schema.sql)。
+`init` 用于准备或升级数据库；创建缺失的表，并幂等补充任务详情、跨日来源、空间、工作池与任务步骤字段，不清空数据、不改写历史快照。现有表结构见 [references/schema.sql](references/schema.sql)。
 
 ## 任务格式
 
@@ -39,6 +41,7 @@ python "${HERMES_SKILL_DIR}/scripts/tasks.py" history --limit 30
   "minimum_goal": "记录一个具体细节",
   "completion_standard": "留下一条能区分事实与猜测的观察笔记",
   "start_action": "先观察一个路口",
+  "steps": ["选一个路口", "观察并记录一个细节", "区分事实与猜测"],
   "estimated_minutes": 15,
   "date": "2026-10-24",
   "recurrence": "once",
@@ -54,6 +57,16 @@ python "${HERMES_SKILL_DIR}/scripts/tasks.py" history --limit 30
 - `recurrence` 为 `once`、`daily` 或 `weekly`；每周任务用 `weekdays` 指定周一=1 至周日=7。
 - `sort_order` 越小越靠前。同一份安排内保持顺序稳定；完成任务自动显示在未完成任务下方。
 - 修改时先查询定位 ID；标题相同可能属于不同日期，不凭标题批量更新。`put --id` 保留没有传入的字段，适合单独补教程。
+
+## 任务步骤
+
+复杂任务可选填 `steps`，以少量具体、可执行的动作拆解；简单任务可以不填，不为凑步骤增加要求。最多 20 步，每步标题 1–500 字。字符串数组由 skill 自动生成稳定 ID；已有同名步骤在重排时复用 ID。也可传对象数组 `[{"id":"STEP_ID","title":"步骤文字"}]`，ID 须为 1–64 位字母、数字、横线或下划线，同一任务内不重复。改写已有步骤的文字时先查询，再保留其 ID，避免丢失对应进度。
+
+`put` 省略 `steps` 保留现有步骤；明确传 `[]` 移除步骤。定义和勾选进度独立保存，修改步骤保留同 ID 的进度；只影响当前及未来的未完成生活任务快照、持续工作任务，不改过去或已完成快照。不能通过 `put` 里的 `completed` 属性写步骤进度。
+
+`list` 和 `work-history` 返回结构化 `steps` 数组，每项包含 `id`、`title` 和 `completed`。用户明确报告某一步完成或撤销时，查询定位任务快照与步骤 ID，再用 `step --id TASK_ID --step STEP_ID` 或加 `--undo` 更新；修改后重新查询核实。不要根据计时结束推断步骤已完成。步骤全部勾选仍由用户确认整项任务完成，不能自动调用 `complete`。
+
+手表可以在任务详情、专注设置与计时中勾选或撤销；进度离线保存后同步，勾选不暂停或重启计时。工作任务沿用同一记录跨天保留步骤进度；每日生活任务复制步骤定义但各天独立勾选。手动“加入今天”仅在新建今天的任务记录时复制来源步骤和进度；今天已有记录时保留其进度。
 
 ## 工作方式
 

@@ -1,4 +1,4 @@
--- Dayflow v5. All DATETIME values are UTC; task_date is Asia/Shanghai.
+-- Dayflow v6. All DATETIME values are UTC; task_date is Asia/Shanghai.
 CREATE TABLE IF NOT EXISTS la_task_templates (
   id CHAR(36) PRIMARY KEY,
   space ENUM('life','work') NOT NULL DEFAULT 'life',
@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS la_task_templates (
   completion_standard TEXT NULL,
   start_action TEXT NULL,
   estimated_minutes SMALLINT UNSIGNED NULL,
+  steps LONGTEXT NULL,
   recurrence ENUM('once','daily','weekly') NOT NULL DEFAULT 'once',
   start_date DATE NOT NULL,
   weekdays VARCHAR(13) NOT NULL DEFAULT '',
@@ -34,9 +35,11 @@ CREATE TABLE IF NOT EXISTS la_task_days (
   completion_standard TEXT NULL,
   start_action TEXT NULL,
   estimated_minutes SMALLINT UNSIGNED NULL,
+  steps LONGTEXT NULL,
   sort_order INT NOT NULL DEFAULT 0,
   waiting BOOLEAN NOT NULL DEFAULT FALSE,
   completed_at DATETIME(3) NULL,
+  step_progress LONGTEXT NULL,
   updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
   UNIQUE KEY task_occurrence (template_id, task_date),
   INDEX day_order (task_date, sort_order),

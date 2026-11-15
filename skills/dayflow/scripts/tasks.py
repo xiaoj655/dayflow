@@ -5,6 +5,7 @@ from datetime import date, datetime, timezone, timedelta
 import hashlib
 import json
 from pathlib import Path
+import re
 import ssl
 import sys
 import uuid
@@ -15,7 +16,7 @@ DETAIL_FIELDS = ('task_value', 'minimum_goal', 'completion_standard', 'start_act
 
 
 def migrate_task_details(cursor):
-    """Only add missing v2/v3 columns; never rewrite existing rows or snapshots."""
+    """Only add missing columns; never rewrite existing rows or snapshots."""
     added = []
     for table in ('la_task_templates', 'la_task_days'):
         cursor.execute('SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=%s', (table,))
@@ -27,6 +28,9 @@ def migrate_task_details(cursor):
                 definition = 'SMALLINT UNSIGNED NULL' if field == 'estimated_minutes' else 'TEXT NULL'
                 cursor.execute(f'ALTER TABLE {table} ADD COLUMN {field} {definition}')
                 added.append(f'{table}.{field}')
+        if 'steps' not in existing:
+            cursor.execute(f'ALTER TABLE {table} ADD COLUMN steps LONGTEXT NULL')
+            added.append(f'{table}.steps')
     if 'carried_from_date' not in existing:
         cursor.execute('ALTER TABLE la_task_days ADD COLUMN carried_from_date DATE NULL')
         added.append('la_task_days.carried_from_date')
@@ -37,10 +41,74 @@ def migrate_task_details(cursor):
             cursor.execute(f"ALTER TABLE {table} ADD COLUMN space ENUM('life','work') NOT NULL DEFAULT 'life'")
             added.append(f'{table}.space')
     cursor.execute("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='la_task_days'")
-    if 'waiting' not in {row['COLUMN_NAME'] for row in cursor.fetchall()}:
+    columns = {row['COLUMN_NAME'] for row in cursor.fetchall()}
+    if 'waiting' not in columns:
         cursor.execute('ALTER TABLE la_task_days ADD COLUMN waiting BOOLEAN NOT NULL DEFAULT FALSE')
         added.append('la_task_days.waiting')
+    if 'step_progress' not in columns:
+        cursor.execute('ALTER TABLE la_task_days ADD COLUMN step_progress LONGTEXT NULL')
+        added.append('la_task_days.step_progress')
     return added
+
+
+def stored_json(value, fallback):
+    return fallback if value is None else json.loads(value) if isinstance(value, str) else value
+
+
+def normalize_steps(value, existing=None):
+    """Keep IDs stable through plain-text plan edits without importing progress."""
+    if not isinstance(value, list) or len(value) > 20:
+        raise ValueError('steps must be an array of at most 20 steps')
+    previous = stored_json(existing, [])
+    if not isinstance(previous, list):
+        raise ValueError('Existing step definitions are invalid')
+    reusable = {}
+    for step in previous:
+        reusable.setdefault(step['title'], []).append(step['id'])
+    normalized, identities = [], set()
+    for step in value:
+        title = step if isinstance(step, str) else step.get('title') if isinstance(step, dict) else None
+        if not isinstance(title, str) or not 1 <= len(title.strip()) <= 500:
+            raise ValueError('Each step needs a title of 1–500 characters')
+        title = title.strip()
+        identity = step.get('id') if isinstance(step, dict) else None
+        if identity is None:
+            identity = next((item for item in reusable.get(title, []) if item not in identities), str(uuid.uuid4()))
+        if not isinstance(identity, str) or re.fullmatch(r'[A-Za-z0-9_-]{1,64}', identity) is None:
+            raise ValueError('Step IDs need 1–64 letters, digits, hyphens or underscores')
+        if identity in identities:
+            raise ValueError('Step IDs must be unique within a task')
+        identities.add(identity)
+        normalized.append({'id': identity, 'title': title})
+    return normalized
+
+
+def task_with_steps(row):
+    result = dict(row)
+    progress = stored_json(result.get('step_progress'), {})
+    definitions = stored_json(result.get('steps'), [])
+    if not isinstance(progress, dict) or not isinstance(definitions, list):
+        raise ValueError('Stored task steps or progress are invalid')
+    result['steps'] = [{**step, 'completed': progress.get(step['id']) is True} for step in definitions]
+    result['step_progress'] = progress
+    return result
+
+
+def set_step_completed(cursor, task_id, step_id, completed=True):
+    cursor.execute('SELECT steps, step_progress FROM la_task_days WHERE id=%s FOR UPDATE', (task_id,))
+    row = cursor.fetchone()
+    if row is None:
+        raise ValueError('No task with this ID; list its date first')
+    definitions = stored_json(row.get('steps'), [])
+    if not isinstance(definitions, list) or not any(step.get('id') == step_id for step in definitions):
+        raise ValueError('No step with this ID in the task')
+    progress = stored_json(row.get('step_progress'), {})
+    if not isinstance(progress, dict):
+        raise ValueError('Stored step progress is invalid')
+    progress[step_id] = bool(completed)
+    cursor.execute('UPDATE la_task_days SET step_progress=%s WHERE id=%s',
+                   (json.dumps(progress, ensure_ascii=False), task_id))
+    return {'id': task_id, 'step_id': step_id, 'completed': bool(completed)}
 
 
 def today():
@@ -72,9 +140,9 @@ def materialize(cursor, day):
     weekday = date.fromisoformat(day).isoweekday()
     cursor.execute('''INSERT IGNORE INTO la_task_days
         (id, template_id, task_date, title, content, tutorial,
-         task_value, minimum_goal, completion_standard, start_action, estimated_minutes, sort_order, space)
+         task_value, minimum_goal, completion_standard, start_action, estimated_minutes, sort_order, space, steps)
         SELECT CONCAT(id, ':', %s), id, %s, title, content, tutorial,
-        task_value, minimum_goal, completion_standard, start_action, estimated_minutes, sort_order, space
+        task_value, minimum_goal, completion_standard, start_action, estimated_minutes, sort_order, space, steps
         FROM la_task_templates WHERE space = 'life' AND active = TRUE AND start_date <= %s
         AND ((recurrence = 'once' AND start_date = %s) OR recurrence = 'daily'
           OR (recurrence = 'weekly' AND FIND_IN_SET(%s, weekdays) > 0))''',
@@ -90,16 +158,16 @@ def list_tasks(cursor, day):
             OR (t.recurrence = 'weekly' AND FIND_IN_SET(%s, t.weekdays) > 0))))
         ORDER BY d.completed_at IS NOT NULL, d.sort_order, d.id''',
         (day, day, today(), day, day, date.fromisoformat(day).isoweekday()))
-    return list(cursor.fetchall()) + work_tasks(cursor)
+    return [task_with_steps(row) for row in cursor.fetchall()] + work_tasks(cursor)
 
 
 def work_tasks(cursor, completed=False):
     cursor.execute("""INSERT IGNORE INTO la_task_days
         (id, template_id, task_date, title, content, tutorial, task_value, minimum_goal,
-         completion_standard, start_action, estimated_minutes, sort_order, space)
+         completion_standard, start_action, estimated_minutes, sort_order, space, steps)
         SELECT CONCAT(t.id, ':', t.start_date), t.id, t.start_date, t.title, t.content,
          t.tutorial, t.task_value, t.minimum_goal, t.completion_standard, t.start_action,
-         t.estimated_minutes, t.sort_order, t.space FROM la_task_templates t
+         t.estimated_minutes, t.sort_order, t.space, t.steps FROM la_task_templates t
         WHERE t.space='work' AND t.active=TRUE AND t.start_date <= %s
         AND NOT EXISTS (SELECT 1 FROM la_task_days d WHERE d.template_id=t.id AND d.space='work')""", (today(),))
     cursor.execute("""SELECT d.*, t.recurrence, t.weekdays FROM la_task_days d
@@ -113,14 +181,16 @@ def work_tasks(cursor, completed=False):
     week = datetime.now(CHINA).date()
     start = datetime.combine(week - timedelta(days=week.weekday()), datetime.min.time(), CHINA).astimezone(timezone.utc).replace(tzinfo=None)
     end = start + timedelta(days=7)
-    return [r for r in rows if (r['completed_at'] is not None if completed else
+    return [task_with_steps(r) for r in rows if (r['completed_at'] is not None if completed else
         r['completed_at'] is None or start <= r['completed_at'] < end)]
 
 
 
 def put_task(cursor, payload, task_id=None):
+    updating_steps = 'steps' in payload
+    existing = None
     if task_id:
-        cursor.execute('SELECT * FROM la_task_templates WHERE id = %s', (task_id,))
+        cursor.execute('SELECT * FROM la_task_templates WHERE id = %s FOR UPDATE', (task_id,))
         existing = cursor.fetchone()
         if not existing:
             raise ValueError('No template with this ID')
@@ -152,23 +222,28 @@ def put_task(cursor, payload, task_id=None):
     if space not in ('life', 'work'): raise ValueError('space must be life or work')
     if space == 'work': repeat, weekdays = 'once', []
     order = int(payload.get('sort_order', 0))
+    steps = (normalize_steps(payload['steps'], existing.get('steps') if existing else None)
+             if updating_steps else stored_json(existing.get('steps'), []) if existing else [])
+    encoded_steps = json.dumps(steps, ensure_ascii=False)
     cursor.execute('''INSERT INTO la_task_templates
         (id, title, content, tutorial, task_value, minimum_goal, completion_standard,
-         start_action, estimated_minutes, recurrence, start_date, weekdays, sort_order, space)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON DUPLICATE KEY UPDATE
+         start_action, estimated_minutes, recurrence, start_date, weekdays, sort_order, space, steps)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON DUPLICATE KEY UPDATE
         title=VALUES(title), content=VALUES(content), tutorial=VALUES(tutorial),
         task_value=VALUES(task_value), minimum_goal=VALUES(minimum_goal),
         completion_standard=VALUES(completion_standard), start_action=VALUES(start_action),
         estimated_minutes=VALUES(estimated_minutes), recurrence=VALUES(recurrence),
         start_date=VALUES(start_date), weekdays=VALUES(weekdays),
-        sort_order=VALUES(sort_order), space=VALUES(space)''',
-        (task_id, title, content, tutorial, *details, repeat, day, ','.join(map(str, weekdays)), order, space))
+        sort_order=VALUES(sort_order), space=VALUES(space), steps=VALUES(steps)''',
+        (task_id, title, content, tutorial, *details, repeat, day, ','.join(map(str, weekdays)), order, space, encoded_steps))
     cursor.execute("SELECT id FROM la_task_days WHERE template_id=%s AND space='work' AND task_date <= %s ORDER BY task_date DESC LIMIT 1", (task_id, today()))
     current_work = cursor.fetchone()
+    steps_assignment = ', steps=%s' if updating_steps else ''
     cursor.execute('''UPDATE la_task_days SET title=%s, content=%s, tutorial=%s, sort_order=%s,
-        task_value=%s, minimum_goal=%s, completion_standard=%s, start_action=%s, estimated_minutes=%s, space=%s
-        WHERE template_id=%s AND (task_date >= %s OR (space='work' AND id=%s)) AND completed_at IS NULL''',
-        (title, content, tutorial, order, *details, space, task_id, today(), current_work['id'] if current_work else ''))
+        task_value=%s, minimum_goal=%s, completion_standard=%s, start_action=%s, estimated_minutes=%s, space=%s'''
+        + steps_assignment + ''' WHERE template_id=%s AND (task_date >= %s OR (space='work' AND id=%s)) AND completed_at IS NULL''',
+        (title, content, tutorial, order, *details, space, *((encoded_steps,) if updating_steps else ()),
+         task_id, today(), current_work['id'] if current_work else ''))
     return {'template_id': task_id, 'title': title, 'date': day, 'recurrence': repeat}
 
 
@@ -180,10 +255,10 @@ def carry_to_today(cursor, task_id):
         raise ValueError('Only unfinished tasks from another date can be added to today')
     cursor.execute('''INSERT INTO la_task_days
         (id, template_id, task_date, carried_from_date, title, content, tutorial,
-         task_value, minimum_goal, completion_standard, start_action, estimated_minutes, sort_order, space)
+         task_value, minimum_goal, completion_standard, start_action, estimated_minutes, sort_order, space, steps, step_progress)
         SELECT CONCAT(template_id, ':', %s), template_id, %s, task_date,
           title, content, tutorial, task_value, minimum_goal, completion_standard,
-          start_action, estimated_minutes, sort_order, space
+          start_action, estimated_minutes, sort_order, space, steps, step_progress
         FROM la_task_days AS source_task WHERE id=%s
         ON DUPLICATE KEY UPDATE carried_from_date=IF(la_task_days.completed_at IS NULL,
           COALESCE(la_task_days.carried_from_date, VALUES(carried_from_date)), la_task_days.carried_from_date)''', (day, day, task_id))
@@ -198,6 +273,7 @@ def main():
     put = commands.add_parser('put'); put.add_argument('--input', type=Path, required=True); put.add_argument('--id')
     complete = commands.add_parser('complete'); complete.add_argument('--id', required=True); complete.add_argument('--undo', action='store_true')
     waiting = commands.add_parser('waiting'); waiting.add_argument('--id', required=True); waiting.add_argument('--undo', action='store_true')
+    step = commands.add_parser('step'); step.add_argument('--id', required=True); step.add_argument('--step', required=True); step.add_argument('--undo', action='store_true')
     commands.add_parser('work-history')
     carry = commands.add_parser('carry'); carry.add_argument('--id', required=True)
     archive = commands.add_parser('archive'); archive.add_argument('--id', required=True)
@@ -214,6 +290,7 @@ def main():
                 output = {'schema': 'ready', 'added_columns': added}
             elif args.command == 'list': output = [row for row in list_tasks(cursor, args.date) if args.space is None or row['space'] == args.space]
             elif args.command == 'put': output = put_task(cursor, json.loads(args.input.read_text()), args.id)
+            elif args.command == 'step': output = set_step_completed(cursor, args.id, args.step, not args.undo)
             elif args.command == 'work-history': output = work_tasks(cursor, completed=True)
             elif args.command == 'waiting':
                 cursor.execute("UPDATE la_task_days SET waiting=%s WHERE id=%s AND space='work' AND completed_at IS NULL", (not args.undo, args.id))
