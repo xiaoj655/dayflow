@@ -21,6 +21,7 @@ import '../widgets/home_focus_card.dart';
 import '../widgets/focus_task_brief.dart';
 import '../widgets/focus_task_panel.dart';
 import '../widgets/task_steps.dart';
+import '../widgets/active_focus_controls.dart';
 
 const accent = AppColors.primary;
 const surface = AppColors.surface;
@@ -258,6 +259,10 @@ class _TaskListPageState extends State<TaskListPage> {
   AppController get controller => widget.controller;
   bool get isRound => widget.isRound;
   double _swipeDistance = 0;
+  final Set<String> _expandedCompletedPools = {};
+  String get _completedPool =>
+      controller.space == 'work' ? 'work' : 'life-${controller.date}';
+  bool get _showCompleted => _expandedCompletedPools.contains(_completedPool);
 
   void _endDaySwipe(DragEndDetails details) {
     if (controller.space == 'work' ||
@@ -529,40 +534,74 @@ class _TaskListPageState extends State<TaskListPage> {
               ),
             if (controller.completed.isNotEmpty)
               Padding(
-                padding: const EdgeInsets.fromLTRB(12, 18, 0, 10),
-                child: Text(
-                  '${controller.space == 'work' ? '本周已完成' : '已完成'} · ${controller.completed.length}',
-                  style: const TextStyle(color: muted, fontSize: 12),
-                ),
-              ),
-            for (final task in controller.completed)
-              TaskTile(
-                task: task,
-                focusCount: controller.focusCount(task),
-                onToggle: () async {
-                  await controller.toggle(task);
-                  TouchHaptics.selectionClick();
-                  if (context.mounted) {
-                    showNotice(
-                      context,
-                      task.completed ? '已恢复待办' : '已完成',
-                      action: SnackBarAction(
-                        label: '撤销',
-                        onPressed: () =>
-                            controller.setCompleted(task, task.completed),
-                      ),
-                    );
-                  }
-                },
-                onTap: () => _open(
-                  context,
-                  TaskDetailPage(
-                    controller: controller,
-                    task: task,
-                    isRound: isRound,
+                padding: const EdgeInsets.only(top: 12, bottom: 6),
+                child: Semantics(
+                  expanded: _showCompleted,
+                  child: TextButton(
+                    key: const ValueKey('completed-tasks-toggle'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: muted,
+                      minimumSize: const Size(0, 40),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        if (!_expandedCompletedPools.add(_completedPool)) {
+                          _expandedCompletedPools.remove(_completedPool);
+                        }
+                      });
+                      TouchHaptics.selectionClick();
+                    },
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '${controller.space == 'work' ? '本周已完成' : '已完成'} · ${controller.completed.length}',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Icon(
+                          _showCompleted
+                              ? Icons.expand_less_rounded
+                              : Icons.expand_more_rounded,
+                          size: 20,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
+            if (_showCompleted)
+              for (final task in controller.completed)
+                TaskTile(
+                  task: task,
+                  focusCount: controller.focusCount(task),
+                  onToggle: () async {
+                    await controller.toggle(task);
+                    TouchHaptics.selectionClick();
+                    if (context.mounted) {
+                      showNotice(
+                        context,
+                        task.completed ? '已恢复待办' : '已完成',
+                        action: SnackBarAction(
+                          label: '撤销',
+                          onPressed: () =>
+                              controller.setCompleted(task, task.completed),
+                        ),
+                      );
+                    }
+                  },
+                  onTap: () => _open(
+                    context,
+                    TaskDetailPage(
+                      controller: controller,
+                      task: task,
+                      isRound: isRound,
+                    ),
+                  ),
+                ),
             if (controller.space == 'work')
               Center(
                 child: TextButton(
@@ -847,7 +886,10 @@ class TaskTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final subtitle = [
-      if (task.estimatedMinutes != null) '约 ${task.estimatedMinutes} 分钟',
+      if (task.steps.isNotEmpty)
+        '${task.completedStepCount}/${task.steps.length} 步'
+      else if (task.estimatedMinutes != null)
+        '约 ${task.estimatedMinutes} 分钟',
       if (task.carriedFromDate != null)
         '来自 ${task.carriedFromDate!.substring(5)}',
     ].join(' · ');
@@ -869,12 +911,19 @@ class TaskTile extends StatelessWidget {
                 tooltip: task.completed
                     ? '恢复待办${task.title}'
                     : '完成${task.title}',
-                constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+                style: IconButton.styleFrom(
+                  minimumSize: const Size(40, 40),
+                  maximumSize: const Size(40, 40),
+                  padding: EdgeInsets.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
                 onPressed: onToggle,
                 icon: Icon(
-                  task.completed ? Icons.check_circle_rounded : Icons.circle,
-                  color: task.completed ? muted : AppColors.overlay,
-                  size: 28,
+                  task.completed
+                      ? Icons.check_circle_rounded
+                      : Icons.radio_button_unchecked_rounded,
+                  color: task.completed ? muted : AppColors.faint,
+                  size: 24,
                 ),
               ),
             Expanded(
@@ -886,7 +935,7 @@ class TaskTile extends StatelessWidget {
                     padding: EdgeInsets.fromLTRB(
                       onToggle == null ? 16 : 0,
                       onFocus == null ? 8 : 6,
-                      onFocus == null ? 12 : 4,
+                      onFocus == null ? 12 : 0,
                       onFocus == null ? 8 : 6,
                     ),
                     child: Column(
@@ -1732,45 +1781,16 @@ class _FocusPageState extends State<FocusPage> {
   }
 
   Widget _controls(BuildContext context) {
-    final isRest = controller.focus!.kind == 'rest';
-    return Transform.scale(
-      scale: 0.68,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          IconButton.filledTonal(
-            tooltip: isRest ? '结束休息' : '提前结束',
-            style: IconButton.styleFrom(
-              fixedSize: const Size(48, 48),
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-            constraints: BoxConstraints.tight(const Size(48, 48)),
-            icon: const Icon(Icons.stop_rounded, size: 24),
-            onPressed: busy ? null : () => _run(_finishEarly),
-          ),
-          const SizedBox(width: 16),
-          IconButton.filled(
-            tooltip: controller.focus!.paused ? '继续' : '暂停',
-            style: IconButton.styleFrom(
-              fixedSize: const Size(48, 48),
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-            constraints: BoxConstraints.tight(const Size(48, 48)),
-            onPressed: busy
-                ? null
-                : () => _run(() async {
-                    await _action(
-                      controller.focus!.paused ? 'resume' : 'pause',
-                    );
-                  }),
-            icon: Icon(
-              controller.focus!.paused
-                  ? Icons.play_arrow_rounded
-                  : Icons.pause_rounded,
-              size: 26,
-            ),
-          ),
-        ],
+    return Center(
+      child: ActiveFocusControls(
+        paused: controller.focus!.paused,
+        isRest: controller.focus!.kind == 'rest',
+        busy: busy,
+        compact: MediaQuery.sizeOf(context).shortestSide < 240,
+        onStop: () => _run(_finishEarly),
+        onPauseResume: () => _run(() async {
+          await _action(controller.focus!.paused ? 'resume' : 'pause');
+        }),
       ),
     );
   }
@@ -1824,7 +1844,7 @@ class _FocusPageState extends State<FocusPage> {
       final taskTitle = Text(
         focus.taskTitle,
         key: const ValueKey('active-focus-task'),
-        maxLines: MediaQuery.sizeOf(context).shortestSide < 220 ? 1 : 2,
+        maxLines: MediaQuery.sizeOf(context).shortestSide < 240 ? 1 : 2,
         overflow: TextOverflow.ellipsis,
         textAlign: TextAlign.center,
         style: const TextStyle(
@@ -1973,7 +1993,7 @@ class _FocusPageState extends State<FocusPage> {
                       ),
                       if (hasSteps)
                         Positioned(
-                          top: side * .27,
+                          top: side * (side < 240 ? .27 : .29),
                           left: side * .17,
                           right: side * .17,
                           child: currentStep(),
@@ -1990,7 +2010,7 @@ class _FocusPageState extends State<FocusPage> {
                               action!,
                               key: const ValueKey('active-focus-start-action'),
                               maxLines:
-                                  MediaQuery.sizeOf(context).shortestSide < 220
+                                  MediaQuery.sizeOf(context).shortestSide < 240
                                   ? 1
                                   : 2,
                               overflow: TextOverflow.ellipsis,
@@ -2004,9 +2024,11 @@ class _FocusPageState extends State<FocusPage> {
                           ),
                         ),
                       Positioned(
-                        top: side * (side < 220 ? (hasSteps ? .44 : .39) : .43),
+                        top: side * (side < 240 ? (hasSteps ? .44 : .39) : .43),
                         left: side * .12,
                         right: side * .12,
+                        height:
+                            side * (side < 240 ? (hasSteps ? .15 : .18) : .20),
                         child: FittedBox(
                           fit: BoxFit.scaleDown,
                           child: Text(
@@ -2015,7 +2037,7 @@ class _FocusPageState extends State<FocusPage> {
                             style: TextStyle(
                               fontSize:
                                   side *
-                                  (side < 220 ? (hasSteps ? .16 : .18) : .20),
+                                  (side < 240 ? (hasSteps ? .15 : .18) : .20),
                               height: 1,
                               fontWeight: FontWeight.w500,
                               fontFeatures: const [
@@ -2027,13 +2049,13 @@ class _FocusPageState extends State<FocusPage> {
                         ),
                       ),
                       Positioned(
-                        top: side * (side < 220 ? (hasSteps ? .62 : .58) : .65),
+                        top: side * (side < 240 ? (hasSteps ? .60 : .58) : .65),
                         left: 0,
                         right: 0,
                         child: Center(child: status),
                       ),
                       Positioned(
-                        top: math.min(side * .73, side - 68),
+                        top: side * (side < 240 ? .68 : .72),
                         left: 0,
                         right: 0,
                         child: _controls(context),

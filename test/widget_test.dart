@@ -358,6 +358,10 @@ void main() {
       await tester.tap(find.text('标记完成'));
       await tester.pumpAndSettle();
       expect(app.completed.single.title, '街头观察');
+      final section = find.byKey(const ValueKey('completed-tasks-toggle'));
+      await reveal(tester, section);
+      await tester.tap(section);
+      await tester.pumpAndSettle();
       final delegate =
           tester.widget<ListView>(find.byType(ListView)).childrenDelegate
               as SliverChildListDelegate;
@@ -522,7 +526,7 @@ void main() {
         );
         expect(
           tester.getSize(find.byTooltip('暂停')).shortestSide,
-          greaterThanOrEqualTo(48),
+          greaterThanOrEqualTo(40),
         );
         final bounds = tester.getRect(find.byType(ClipOval));
         for (final tooltip in ['暂停', '提前结束']) {
@@ -878,11 +882,8 @@ void main() {
       expect(engine.calls.where((call) => call == 'permissions'), hasLength(1));
       expect(
         tester
-            .widget<IconButton>(
-              find.ancestor(
-                of: find.byTooltip('继续'),
-                matching: find.byType(IconButton),
-              ),
+            .widget<FilledButton>(
+              find.byKey(const ValueKey('active-focus-toggle')),
             )
             .onPressed,
         isNull,
@@ -1140,6 +1141,12 @@ void main() {
       }
       final original = repository.days[date]!.first;
       final app = await configure(tester, repository: repository);
+      if (completed) {
+        final section = find.byKey(const ValueKey('completed-tasks-toggle'));
+        await reveal(tester, section);
+        await tester.tap(section);
+        await tester.pumpAndSettle();
+      }
       final toggle = find.byTooltip('${completed ? '恢复待办' : '完成'}街头观察');
       await reveal(tester, toggle);
       await tester.tap(toggle);

@@ -45,6 +45,7 @@ void main() {
           diameter: diameter,
           repository: repository,
         );
+        expect(find.text('0/3 步'), findsOneWidget);
         await tester.tap(find.byKey(ValueKey('task-focus-${task.id}')));
         await tester.pumpAndSettle();
         expect(find.text('复现问题'), findsOneWidget);
@@ -74,6 +75,10 @@ void main() {
         );
         expect(stepBounds.bottom, lessThanOrEqualTo(timerBounds.top));
         expect(timerBounds.bottom, lessThanOrEqualTo(statusBounds.top));
+        final controls = tester.getRect(
+          find.byKey(const ValueKey('active-focus-controls')),
+        );
+        expect(statusBounds.bottom, lessThanOrEqualTo(controls.top));
         expect(
           find.byKey(const ValueKey('task-step-toggle-fix')).hitTestable(),
           findsOneWidget,
@@ -99,6 +104,9 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.byType(FocusTaskPanel), findsNothing);
         expect(find.text('修改代码'), findsOneWidget);
+        Navigator.of(tester.element(find.byType(FocusPage))).pop();
+        await tester.pumpAndSettle();
+        expect(find.text('1/3 步'), findsOneWidget);
         expect(tester.takeException(), isNull);
       },
     );
