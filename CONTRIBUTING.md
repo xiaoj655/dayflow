@@ -3,18 +3,12 @@
 先按 [部署说明](docs/setup.md)准备本地配置。常规验证：
 
 ```bash
-flutter pub get --enforce-lockfile
-flutter analyze
-flutter test --exclude-tags=database
-python3 -m unittest discover -s test -p '*test*.py'
-flutter build apk --release --target-platform android-arm,android-arm64
-cd android
-./gradlew :app:testDebugUnitTest
+make check        # 静态检查、Flutter 与 Python 离线回归
+make build        # 双架构 release APK
+make test-native  # Android 原生计时与勿扰测试
 ```
 
-以上检查也可用 `make check`、`make build`、`make test-native` 执行，`make help` 列出全部快捷指令。
-
-Python 数据库测试默认跳过；需要显式启用，并使用独立测试库，见部署说明。不要为测试连接他人的数据库。
+`make help` 列出全部快捷指令；等价的完整命令见 [部署说明](docs/setup.md) 的「验证」一节。Python 数据库测试默认跳过；需要显式启用，并使用独立测试库，见部署说明。不要为测试连接他人的数据库。
 
 新功能先通过 issue 讨论设计。修复请说明触发条件、最终行为和必要验证；涉及圆屏视觉时由实机反馈确认，不要求维护者执行长验收流程。当前主要实测设备为小米手表 5，其他设备的反馈请附系统版本和屏幕形状。
 

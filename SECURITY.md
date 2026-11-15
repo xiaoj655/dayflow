@@ -8,4 +8,4 @@
 - `config/database.json`、skill 的 `connection.json`、本地证书和签名密钥不进入版本控制。已经提交到 Git 历史的文件不会因新增 `.gitignore` 自动消失。
 - 如果密码、带凭据的源码包或个人 APK 已公开，先撤销或更换凭据，再处理历史和附件；仅删除当前文件不能使泄露失效。
 
-公开 issue 请只包含脱敏的复现步骤，不粘贴配置、任务内容或完整日志。若仓库已启用 GitHub 的私密漏洞报告，可使用 Security → Report a vulnerability。若入口未启用，请先提交不含漏洞细节的联系请求，等待维护者提供私密渠道。
+公开 issue 请只包含脱敏的复现步骤，不粘贴配置、任务内容或完整日志。若仓库已启用 GitHub 的私密漏洞报告，可使用 Security → Report a vulnerability。若入口未启用，请先开一个不含漏洞细节的 issue 询问私密渠道，等待维护者提供联系方式。

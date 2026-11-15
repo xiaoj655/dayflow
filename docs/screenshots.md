@@ -8,6 +8,8 @@ python3 scripts/capture_watch_ui.py
 python3 scripts/capture_watch_ui.py --flutter /path/to/flutter
 ```
 
+也可用 `make screenshots`；Flutter 不在 PATH 时用 `make screenshots FLUTTER=/path/to/flutter`。
+
 需要 Python 3.10+ 和项目锁定的 Flutter 3.47.8；建议在 Linux 上生成，以减少跨平台渲染差异。先安装截图工具依赖（可在 Python 虚拟环境内执行）：
 
 ```bash

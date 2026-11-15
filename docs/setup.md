@@ -58,10 +58,10 @@ python3 scripts/configure.py check --skill
 
 ```bash
 flutter pub get --enforce-lockfile
-flutter analyze
-flutter test --exclude-tags=database
 flutter build apk --release --target-platform android-arm,android-arm64
 ```
+
+离线回归与完整验证命令见下方「验证」一节。
 
 APK 位于 `build/app/outputs/flutter-apk/app-release.apk`。小米手表 5 需要 `armeabi-v7a`，不要只构建 arm64。该 APK 包含自己的数据库配置，不要公开分发。现有 release 配置仍使用本机 debug 签名，供个人自行构建；构建模式是 release，签名身份仍是 debug。公共 APK 发布需要另行配置长期保管的正式签名。
 
