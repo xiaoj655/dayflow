@@ -21,8 +21,13 @@ def validate(config, allow_example=False):
             raise ValueError(f'{field} must be a nonempty string')
     if type(config.get('port')) is not int or not 1 <= config['port'] <= 65535:
         raise ValueError('port must be an integer between 1 and 65535')
+    insecure = config.get('allowInsecureConnection', False)
+    if type(insecure) is not bool:
+        raise ValueError('allowInsecureConnection must be a boolean')
     pin = config.get('certificateSha256')
-    if not isinstance(pin, str) or not re.fullmatch(r'[0-9a-f]{64}', pin):
+    if insecure and pin is not None:
+        raise ValueError('Remove certificateSha256 when allowInsecureConnection is true')
+    if not insecure and (not isinstance(pin, str) or not re.fullmatch(r'[0-9a-f]{64}', pin)):
         raise ValueError('certificateSha256 must be 64 lowercase hex characters, without colons')
     if not allow_example and (config['host'].endswith('.invalid') or
                               config['password'] == 'CHANGE_ME' or pin == '0' * 64):
@@ -59,9 +64,12 @@ def check(root, include_skill=False, allow_example=False):
             raise ValueError(f'{target}: {error}') from None
         configs.append(config)
     if include_skill:
-        if any(configs[0][field] != configs[1][field]
-               for field in ('host', 'port', 'database', 'certificateSha256')):
-            raise ValueError('App and skill configuration differ; point both to the same database and certificate')
+        app, skill = configs
+        if (any(app.get(field) != skill.get(field)
+                for field in ('host', 'port', 'database', 'certificateSha256')) or
+                app.get('allowInsecureConnection', False) != skill.get('allowInsecureConnection', False)):
+            raise ValueError('App and skill must use the same database and transport settings')
+    if include_skill and not configs[1].get('allowInsecureConnection', False):
         pem = root / SKILL.parent / 'mysql-server.pem'
         try:
             certificate = pem.read_text(encoding='ascii')

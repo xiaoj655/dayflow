@@ -15,17 +15,19 @@ class _Certificate implements X509Certificate {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-class _Socket implements SecureSocket {
+class _PlainSocket implements Socket {
   bool destroyed = false;
-
-  @override
-  X509Certificate get peerCertificate => _Certificate();
 
   @override
   void destroy() => destroyed = true;
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _Socket extends _PlainSocket implements SecureSocket {
+  @override
+  X509Certificate get peerCertificate => _Certificate();
 }
 
 class _Result implements IResultSet {
@@ -37,7 +39,9 @@ class _Result implements IResultSet {
 }
 
 class _Connection implements MySQLConnection {
-  final socket = _Socket();
+  _Connection([_PlainSocket? socket]) : socket = socket ?? _Socket();
+
+  final _PlainSocket socket;
   final queries = <String>[];
   int connectCalls = 0, closeCalls = 0;
   Future<void> Function()? onConnect, closeResponse;
@@ -175,6 +179,34 @@ void main() {
     await failed;
     expect(connection.queries, isEmpty);
     expect(connection.closeCalls, 1);
+  });
+
+  test('Plaintext requires an explicit boolean opt-in without a pin', () async {
+    final connection = _Connection(_PlainSocket());
+    final repository = MySqlTaskRepository({
+      'allowInsecureConnection': true,
+    }, connectionFactory: () async => connection);
+    expect(await repository.history(), isEmpty);
+    expect(connection.queries.first, "SET time_zone = '+00:00'");
+
+    for (final config in <Map<String, dynamic>>[
+      {},
+      {'allowInsecureConnection': 'true'},
+      {'allowInsecureConnection': true, 'certificateSha256': 'conflicting-pin'},
+    ]) {
+      final repository = MySqlTaskRepository(
+        config,
+        connectionFactory: () async => throw StateError('Opened a connection'),
+      );
+      await expectLater(repository.history(), throwsFormatException);
+    }
+  });
+
+  test('A pin without opt-in rejects a plaintext socket', () async {
+    final connection = _Connection(_PlainSocket());
+    final repository = _repository(() async => connection);
+    await expectLater(repository.history(), throwsA(isA<HandshakeException>()));
+    expect(connection.queries, isEmpty);
   });
 
   testWidgets('Failed handshakes release sockets even when close rejects', (

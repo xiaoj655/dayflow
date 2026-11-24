@@ -118,21 +118,38 @@ def today():
 def connect():
     import pymysql
     config = json.loads((ROOT / 'connection.json').read_text())
-    context = ssl.create_default_context(cafile=str(ROOT / 'mysql-server.pem'))
-    context.check_hostname = False  # Identity is the pinned leaf certificate below.
-    # MySQL auto-generated certificates may omit AKI; keep chain/date checking
-    # and the exact leaf pin while using OpenSSL's compatibility verifier.
-    context.verify_flags &= ~ssl.VERIFY_X509_STRICT
-    context.verify_flags |= ssl.VERIFY_X509_PARTIAL_CHAIN
+    insecure = config.get('allowInsecureConnection', False)
+    pin = config.get('certificateSha256')
+    if type(insecure) is not bool:
+        raise ValueError('allowInsecureConnection must be a boolean')
+    if insecure:
+        if pin is not None:
+            raise ValueError('Remove certificateSha256 when allowInsecureConnection is true')
+        transport = {'ssl_disabled': True}
+    else:
+        if not isinstance(pin, str) or not pin:
+            raise ValueError('certificateSha256 is required for TLS')
+        context = ssl.create_default_context(cafile=str(ROOT / 'mysql-server.pem'))
+        context.check_hostname = False  # Identity is the pinned leaf certificate below.
+        # MySQL-generated certificates may omit AKI. Keep chain/date verification.
+        context.verify_flags &= ~ssl.VERIFY_X509_STRICT
+        context.verify_flags |= ssl.VERIFY_X509_PARTIAL_CHAIN
+        transport = {'ssl': context}
     connection = pymysql.connect(host=config['host'], port=config['port'], user=config['user'],
         password=config['password'], database=config['database'], charset='utf8mb4',
-        cursorclass=pymysql.cursors.DictCursor, ssl=context, connect_timeout=8,
-        read_timeout=8, write_timeout=8, autocommit=False)
-    if hashlib.sha256(connection._sock.getpeercert(binary_form=True)).hexdigest() != config['certificateSha256']:
+        cursorclass=pymysql.cursors.DictCursor, connect_timeout=8,
+        read_timeout=8, write_timeout=8, autocommit=False, **transport)
+    try:
+        if not insecure:
+            sock = connection._sock
+            if (not isinstance(sock, ssl.SSLSocket) or
+                    hashlib.sha256(sock.getpeercert(binary_form=True)).hexdigest() != pin):
+                raise RuntimeError('Database certificate does not match the configured pin')
+        with connection.cursor() as cursor:
+            cursor.execute("SET time_zone = '+00:00'")
+    except Exception:
         connection.close()
-        raise RuntimeError('Database certificate does not match the configured pin')
-    with connection.cursor() as cursor:
-        cursor.execute("SET time_zone = '+00:00'")
+        raise
     return connection
 
 

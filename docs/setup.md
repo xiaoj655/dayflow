@@ -9,7 +9,7 @@
 
 ## 1. 准备数据库和 TLS
 
-在自己的 MySQL 服务器上启用 TLS，准备服务器叶证书。可以使用自己的 CA，也可以使用 MySQL 生成的服务器证书；连接时始终固定叶证书 SHA-256 指纹。私钥仅存放于数据库服务器，不复制进项目。
+推荐在 MySQL 服务器上启用 TLS，准备服务器叶证书。可以使用自己的 CA，也可以使用 MySQL 生成的服务器证书。Dayflow 默认固定叶证书 SHA-256 指纹。私钥仅存放于数据库服务器。
 
 用数据库管理账户创建专用库，然后导入表结构。以下 `mysql -p` 会交互询问密码，勿把实际密码写进命令行：
 
@@ -36,7 +36,7 @@ ALTER USER 'life_assistant'@'app_source' REQUIRE SSL;
 python3 scripts/configure.py init
 ```
 
-该命令从公开模板创建 `config/database.json` 和 `skills/dayflow/connection.json`，不会覆盖已有文件。编辑 `host`、`port`、`user`、`password`、`database` 和 `certificateSha256`。两份配置指向同一个数据库及证书，账户可以不同。
+该命令从公开模板创建 `config/database.json` 和 `skills/dayflow/connection.json`，不会覆盖已有文件。编辑 `host`、`port`、`user`、`password`、`database` 和 `certificateSha256`。两份配置指向同一个数据库，使用一致的传输设置，账户可以不同。
 
 通过可信渠道取得服务器叶证书，保存为 `skills/dayflow/mysql-server.pem`，然后生成指纹：
 
@@ -45,6 +45,8 @@ openssl x509 -in skills/dayflow/mysql-server.pem -outform DER | openssl dgst -sh
 ```
 
 把输出的 64 位小写十六进制写入两份配置的 `certificateSha256`，不要包含前缀、空格或冒号。Flutter 应用直接使用指纹，不需要额外打包 PEM；Hermes 需要证书文件及相同的指纹。
+
+若数据库仅提供明文连接，且你接受同步数据不加密，可在两份本地 JSON 中显式写入 `"allowInsecureConnection": true`，删除 `certificateSha256` 字段。此模式无需 PEM，手表和手机的 MySQL 账号需支持 `mysql_native_password`。配置缺少有效指纹时默认连接失败。
 
 ```bash
 python3 scripts/configure.py check
@@ -84,7 +86,7 @@ adb -s <设备地址> shell pm grant com.example.life_assistant android.permissi
 
 ## 4. Hermes skill（可选）
 
-无需 Hermes 也能使用手表及手机。要使用 skill，先配置两端指向同库，保留自己的 `connection.json` 和 `mysql-server.pem`。
+无需 Hermes 也能使用手表及手机。要使用 skill，先配置两端指向同库，保留自己的 `connection.json`。固定 TLS 指纹时还需保留 `mysql-server.pem`。
 
 ```bash
 python3 -m venv skills/dayflow/.venv
@@ -92,7 +94,7 @@ skills/dayflow/.venv/bin/pip install -r skills/dayflow/requirements.txt
 skills/dayflow/.venv/bin/python skills/dayflow/scripts/tasks.py list
 ```
 
-把 `skills/dayflow/` 复制到运行 Hermes 的账户的 `~/.hermes/skills/dayflow/`，包含 `SKILL.md`、`requirements.txt`、`connection.json`、`mysql-server.pem`、`scripts/` 和 `references/`；排除 `.venv` 和 `__pycache__`，在目标机器重新安装依赖。目标应为真实目录，并由运行 Hermes 的账户持有和读取，不使用指向不可访问项目路径的软链接。复制后在新 Hermes 会话使用 `/dayflow`。
+把 `skills/dayflow/` 复制到运行 Hermes 的账户的 `~/.hermes/skills/dayflow/`，包含 `SKILL.md`、`requirements.txt`、`connection.json`、TLS 部署用的 `mysql-server.pem`、`scripts/` 和 `references/`。排除 `.venv` 和 `__pycache__`，在目标机器重新安装依赖。目标应为真实目录，并由运行 Hermes 的账户持有和读取，不使用指向不可访问项目路径的软链接。复制后在新 Hermes 会话使用 `/dayflow`。
 
 数据库管理员也可用 skill 的 `init` 创建缺失表及增量补列，执行前需配置管理账户。初始化后改回运行账户，不把管理凭据打入 APK。应用启动不会建表或写入演示任务。
 

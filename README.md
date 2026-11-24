@@ -155,7 +155,7 @@ flutter build apk --release --target-platform android-arm,android-arm64
 
 验证环境为 Flutter 3.47.8 / Dart 3.13.7、JDK 21。首次使用需要先创建数据库和导入表结构；应用不会自动建表或插入示例任务。
 
-**配置在本地明文保存，也会被打进 APK。不要公开分发自己的 APK、连接配置或个人任务数据。** 真实配置和证书已加入 Git 忽略规则，公开模板为 `config/database.example.json` 与 `skills/dayflow/connection.example.json`。保留 TLS 指纹校验；详见 [SECURITY.md](SECURITY.md)。
+**配置在本地明文保存，也会被打进 APK。不要公开分发自己的 APK、连接配置或个人任务数据。** 真实配置和证书已加入 Git 忽略规则，公开模板为 `config/database.example.json` 与 `skills/dayflow/connection.example.json`。连接默认校验 TLS 证书指纹；仅支持明文的数据库可显式设置 `allowInsecureConnection: true`。详见 [SECURITY.md](SECURITY.md)。
 
 当前 release 构建仍采用本机 debug 密钥签名，供个人自行编译使用；正式签名及安装后配置界面不在本次源码首版范围。
 

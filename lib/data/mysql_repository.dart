@@ -31,6 +31,20 @@ class MySqlTaskRepository implements TaskRepository {
           MySQLConnection? connection;
           var expired = false;
           Future<T> execute() async {
+            final allowInsecure = config['allowInsecureConnection'];
+            final pin = config['certificateSha256'];
+            if (config.containsKey('allowInsecureConnection') &&
+                allowInsecure is! bool) {
+              throw const FormatException(
+                'allowInsecureConnection must be a boolean',
+              );
+            }
+            final secure = allowInsecure != true;
+            if (secure ? pin is! String || pin.isEmpty : pin != null) {
+              throw const FormatException(
+                'Set certificateSha256 for TLS, or allowInsecureConnection for plaintext',
+              );
+            }
             final opened =
                 await (connectionFactory?.call() ??
                     MySQLConnection.createConnection(
@@ -39,10 +53,9 @@ class MySqlTaskRepository implements TaskRepository {
                       userName: config['user'] as String,
                       password: config['password'] as String,
                       databaseName: config['database'] as String,
-                      secure: true,
+                      secure: secure,
                       onBadCertificate: (X509Certificate cert) =>
-                          sha256.convert(cert.der).toString() ==
-                              config['certificateSha256'] &&
+                          sha256.convert(cert.der).toString() == pin &&
                           DateTime.now().isAfter(cert.startValidity) &&
                           DateTime.now().isBefore(cert.endValidity),
                     ));
@@ -55,14 +68,17 @@ class MySqlTaskRepository implements TaskRepository {
             }
             await opened.connect(timeoutMs: 8000);
             if (expired) throw TimeoutException('Database request timed out');
-            final socket = opened.getSocket();
-            if (socket is! SecureSocket ||
-                socket.peerCertificate == null ||
-                sha256.convert(socket.peerCertificate!.der).toString() !=
-                    config['certificateSha256']) {
-              throw const HandshakeException(
-                'Database certificate does not match the configured pin',
-              );
+            if (secure) {
+              final socket = opened.getSocket();
+              final certificate = socket is SecureSocket
+                  ? socket.peerCertificate
+                  : null;
+              if (certificate == null ||
+                  sha256.convert(certificate.der).toString() != pin) {
+                throw const HandshakeException(
+                  'Database certificate does not match the configured pin',
+                );
+              }
             }
             await opened.execute("SET time_zone = '+00:00'");
             if (expired) throw TimeoutException('Database request timed out');

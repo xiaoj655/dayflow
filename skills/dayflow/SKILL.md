@@ -11,6 +11,8 @@ description: 管理用户 Dayflow 手表和手机共享的每日任务、固定�
 
 连接信息以明文保存在技能目录的 `connection.json`；公开源码只提供 `connection.example.json`，使用者复制后填写自己的配置。`mysql-server.pem` 由使用者通过可信渠道提供，是其服务器的固定 TLS 叶证书；不包含服务器私钥。不要把密码拼进命令行或打印给用户，不提交真实配置或证书。证书验证失败时说明连接失败，不自动信任新证书。
 
+默认使用 TLS 并校验 `certificateSha256`。仅支持明文连接的个人部署可在应用和 skill 的本地配置中都显式设置 `"allowInsecureConnection": true`，同时移除 `certificateSha256`。
+
 需要 Python 3.10+ 和 PyMySQL。环境缺少依赖时，在技能目录创建 `.venv` 并执行 `.venv/bin/pip install -r requirements.txt`。使用 `${HERMES_SKILL_DIR}/scripts/tasks.py`，命令示例中的 `python` 替换为可用的 Python 或该虚拟环境解释器。
 
 ```bash
